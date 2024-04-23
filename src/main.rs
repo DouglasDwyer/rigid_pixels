@@ -161,10 +161,6 @@ impl CollisionDetector {
             }
         }
 
-        if !contacts.is_empty() {
-            //println!("The contacts are {contacts:?}");
-        }
-
         self.contacts = contacts;
     }
 
@@ -187,16 +183,20 @@ impl CollisionDetector {
                         PixelKind::Interior => continue,
                     };
 
+                    //assert!(delta.try_normalize().is_some(), "Col between {corner:?} {position:?} (which lies at {b_pixel_position:?} for {b_to_a:?} (with {a_to_world_space:?})");
+
                     let contact_point = b_pixel_position - 0.5 * delta;
                     let penetration = ((normal.signum() - delta) / normal).min_element();
 
+                    let world_point = a_to_world_space.transform_point3a(vec3a(contact_point.x, contact_point.y, 0.0)).xy();
+
                     contacts.push(CollisionContact {
-                        object_a: a.id,
-                        object_b: b.id,
-                        restitution: 0.001,
+                        objects: [a.id, b.id],
+                        relative_position: [world_point - a.object.position, world_point - b.object.position],
+                        restitution: 0.01,
                         penetration,
-                        point: a_to_world_space.transform_point3a(vec3a(contact_point.x, contact_point.y, 0.0)).xy(),
-                        normal: -a_to_world_space.transform_vector3a(vec3a(normal.x, normal.y, 0.0)).xy()
+                        normal: -a_to_world_space.transform_vector3a(vec3a(normal.x, normal.y, 0.0)).xy(),
+                        world_pos: world_point
                     });
                 }
             }
@@ -229,17 +229,74 @@ pub struct ContactResolver {
 }
 
 impl ContactResolver {
+    fn adjust_positions(&mut self, delta_time: f32) {
+        let mut contacts = self.ctx.get::<CollisionDetector>().contacts().to_vec();
+        let mut world = self.ctx.get_mut::<GameWorld>();
+        let initial_poses = world.objects.iter().map(|x| x.1.position).collect::<Vec<_>>();
+
+        let mut iterations = 0;
+        while iterations < 2 * contacts.len() {
+            let mut max_penetration = 0.001;
+            let mut max_index = contacts.len();
+            for (i, contact) in contacts.iter().enumerate() {
+                if max_penetration < contact.penetration {
+                    max_penetration = contact.penetration;
+                    max_index = i;
+                }
+            }
+
+            if max_index == contacts.len() {
+                return;
+            }
+
+            let contact = &contacts[max_index];
+            let (object_a, object_b) = world.objects.get2_mut(contact.objects[0], contact.objects[1]).unwrap();
+            let movement_deltas = contact.apply_position(object_a, object_b);
+            let affected_objects = contact.objects;
+
+            for to_update in &mut contacts {
+                for (body_index, body_id) in affected_objects.into_iter().enumerate() {
+                    for (index, id) in to_update.objects.into_iter().enumerate() {
+                        if body_id == id {
+                            let obj = &world.objects[body_id];
+                            let delta_position = movement_deltas[body_index].linear_delta + Vec2::Y.rotate(to_update.relative_position[index]) * movement_deltas[body_index].angular_delta;
+                            to_update.penetration += [-1.0, 1.0][index] * delta_position.dot(to_update.normal);
+                        }
+                    }
+                }
+            }
+
+            for to_update in &mut contacts {
+                for body_id in affected_objects {
+                    for (index, id) in to_update.objects.into_iter().enumerate() {
+                        if body_id == id {
+                            let obj = &world.objects[body_id];
+                            let delta_position = movement_deltas[index].linear_delta + Vec2::Y.rotate(to_update.relative_position[index]) * movement_deltas[index].angular_delta;
+                            to_update.penetration += [-1.0, 1.0][index] * delta_position.dot(to_update.normal);
+                        }
+                    }
+                }
+            }
+
+            iterations += 1;
+        }
+
+        if !contacts.is_empty() {
+            println!("OVerrun!! {contacts:?}");
+        }
+    }
+
     fn adjust_velocities(&mut self, delta_time: f32) {
         let contacts = self.ctx.get::<CollisionDetector>().contacts().to_vec();
         let mut world = self.ctx.get_mut::<GameWorld>();
-        let mut desired_velocities = Vec::from_iter(contacts.iter().map(|x| x.calculate_desired_velocity(&world.objects[x.object_a], &world.objects[x.object_b])));
+        let mut desired_velocities = Vec::from_iter(contacts.iter().map(|x| x.calculate_desired_velocity(delta_time, &world.objects[x.objects[0]], &world.objects[x.objects[1]])));
 
         //println!("DESIRED VELS {desired_velocities:?}");
 
         let mut iterations = 0;
-        while iterations < 20 {//2 * contacts.len() {
+        while iterations < 2 * contacts.len() {
             let mut index_max = desired_velocities.len();
-            let mut velocity_max = f32::EPSILON;
+            let mut velocity_max = 0.001;
             for (index, velocity) in desired_velocities.iter().copied().enumerate() {
                 if velocity_max < velocity {
                     velocity_max = velocity;
@@ -252,30 +309,34 @@ impl ContactResolver {
             }
 
             let max_contact = &contacts[index_max];
-            let (object_a, object_b) = world.objects.get2_mut(max_contact.object_a, max_contact.object_b).unwrap();
+            let (object_a, object_b) = world.objects.get2_mut(max_contact.objects[0], max_contact.objects[1]).unwrap();
             let deltas = max_contact.apply_velocity_change(object_a, object_b, desired_velocities[index_max]);
 
-            for (index, contact) in contacts.iter().enumerate() {
-                for (index, obj) in [contact.object_a, contact.object_b].into_iter().enumerate() {
-                    let matching_index = if obj == max_contact.object_a {
+            for (contact_index, contact) in contacts.iter().enumerate() {
+                for (index, obj) in contact.objects.into_iter().enumerate() {
+                    let matching_index = if obj == max_contact.objects[0] {
                         0
                     }
-                    else if obj == max_contact.object_b {
+                    else if obj == max_contact.objects[1] {
                         1
                     }
                     else {
                         continue;
                     };
 
-                    desired_velocities[index] = contact.calculate_desired_velocity(&world.objects[contact.object_a], &world.objects[contact.object_b]);
+                    desired_velocities[contact_index] = contact.calculate_desired_velocity(delta_time, &world.objects[contact.objects[0]], &world.objects[contact.objects[1]]);
                 }
             }
-            iterations += 1;
+            //iterations += 1;
         }
-        println!("OVerrun!! {desired_velocities:?}");
+
+        if desired_velocities.len() > 0 {
+            println!("OVerrun!! {desired_velocities:?}");
+        }
     }
 
     fn resolve_contacts(&mut self, event: &on::PhysicsUpdate) {
+        self.adjust_positions(event.delta_time);
         self.adjust_velocities(event.delta_time);
     }
 }
@@ -475,66 +536,98 @@ impl GeeseSystem for GameWorld {
 }
 
 #[derive(Copy, Clone, Debug, Default)]
-pub struct VelocityDeltas {
+pub struct MovementDeltas {
     pub linear_delta: Vec2,
     pub angular_delta: f32
 }
 
 #[derive(Copy, Clone, Debug)]
 pub struct CollisionContact {
-    pub object_a: usize,
-    pub object_b: usize,
+    pub objects: [usize; 2],
+    pub relative_position: [Vec2; 2],
     pub restitution: f32,
     pub penetration: f32,
-    pub point: Vec2,
-    pub normal: Vec2
+    pub normal: Vec2,
+    pub world_pos: Vec2
 }
 
 impl CollisionContact {
-    pub fn apply_velocity_change(&self, object_a: &mut PixelObject, object_b: &mut PixelObject, desired_velocity: f32) -> [VelocityDeltas; 2] {
-        let mut velocity_change = 0.0;
+    pub fn apply_position(&self, object_a: &mut PixelObject, object_b: &mut PixelObject) -> [MovementDeltas; 2] {
+        let mut total_inertia = 0.0;
+        let mut linear_inertia = [0.0; 2];
+        let mut angular_inertia = [0.0; 2];
+        self.calculate_velocity_per_impulse(object_a, object_b, &mut total_inertia, &mut linear_inertia, &mut angular_inertia);
 
-        for obj in [&mut *object_a, &mut *object_b] {
-            let relative_contact = self.point - obj.position;
-            let angular_velocity_per_impulse = obj.physics_as.inverse_inertia_tensor * relative_contact.perp_dot(self.normal);
-            let velocity_per_impulse = Vec2::Y.rotate(relative_contact) * angular_velocity_per_impulse;
-            velocity_change += velocity_per_impulse.dot(self.normal) + obj.physics_as.inverse_mass;
+        let mut result = [MovementDeltas::default(); 2];
+        for (index, obj) in [object_a, object_b].into_iter().enumerate() {
+            if 0.0 < linear_inertia[index] {
+                let sign = [1.0, -1.0][index];
+    
+                let linear = sign * self.penetration * (linear_inertia[index] / total_inertia);
+                let angular = sign * self.penetration * (angular_inertia[index] / total_inertia);
+    
+                result[index].linear_delta = linear * self.normal;
+                obj.position += result[index].linear_delta;
+    
+                let target_angular_direction = self.relative_position[index].perp_dot(self.normal);
+                result[index].angular_delta = obj.physics_as.inverse_inertia_tensor * target_angular_direction * angular / angular_inertia[index].max(0.00001);
+                obj.rotation += result[index].angular_delta;
+            }
         }
+
+        result
+    }
+
+    pub fn apply_velocity_change(&self, object_a: &mut PixelObject, object_b: &mut PixelObject, desired_velocity: f32) -> [MovementDeltas; 2] {
+        let mut velocity_change = 0.0;
+        self.calculate_velocity_per_impulse(object_a, object_b, &mut velocity_change, &mut [0.0; 2], &mut [0.0; 2]);
 
         let impulse = -desired_velocity / velocity_change * self.normal;
 
-        let mut linear_delta_a = Vec2::ZERO;
-
-        let mut results = [VelocityDeltas::default(); 2];
+        let mut results = [MovementDeltas::default(); 2];
 
         for (index, obj) in [object_a, object_b].into_iter().enumerate() {
-            let relative_contact = self.point - obj.position;
-            let impulsive_torque = relative_contact.perp_dot(impulse);
+            let impulsive_torque = self.relative_position[index].perp_dot(impulse);
 
             let deltas = &mut results[index];
-            deltas.linear_delta = obj.physics_as.inverse_mass * impulse;
+            // todo: sign here conflicts with cyclone?
+            deltas.linear_delta = [-1.0, 1.0][index] * obj.physics_as.inverse_mass * impulse;
             deltas.angular_delta = obj.physics_as.inverse_inertia_tensor * impulsive_torque;
 
-            obj.linear_velocity += [-1.0, 1.0][index] * deltas.linear_delta;
+            obj.linear_velocity += deltas.linear_delta;
             obj.angular_velocity += deltas.angular_delta;
         }
 
         results
     }
 
-    pub fn calculate_desired_velocity(&self, object_a: &PixelObject, object_b: &PixelObject) -> f32 {
+    pub fn calculate_desired_velocity(&self, delta_time: f32, object_a: &PixelObject, object_b: &PixelObject) -> f32 {
         let mut total_current_velocity = Vec2::ZERO;
+        let mut velocity_from_acceleration = 0.0;
 
         for (index, obj) in [object_a, object_b].into_iter().enumerate() {
-            let relative_contact = self.point - obj.position;
+            let relative_contact = self.relative_position[index];
             total_current_velocity += [1.0, -1.0][index] * (Vec2::Y.rotate(relative_contact) * obj.angular_velocity + obj.linear_velocity);
+            velocity_from_acceleration += [1.0, -1.0][index] * delta_time * obj.last_frame_acceleration.dot(self.normal);
         }
 
         let contact_velocity = total_current_velocity.dot(self.normal);
         let mut restitution = (0.25 < contact_velocity).then_some(self.restitution).unwrap_or_default();
 
         // todo: make things not jumpy.
-        -contact_velocity * (1.0 + self.restitution)
+        -contact_velocity - self.restitution * (contact_velocity - velocity_from_acceleration)
+    }
+
+    fn calculate_velocity_per_impulse(&self, object_a: &PixelObject, object_b: &PixelObject, total: &mut f32, linear: &mut [f32; 2], angular: &mut [f32; 2]) {
+        for (index, obj) in [object_a, object_b].into_iter().enumerate() {
+            let relative_contact = self.relative_position[index];
+            let angular_velocity_per_impulse = obj.physics_as.inverse_inertia_tensor * relative_contact.perp_dot(self.normal);
+            let velocity_per_impulse = Vec2::Y.rotate(relative_contact) * angular_velocity_per_impulse;
+
+            linear[index] = obj.physics_as.inverse_mass;
+            angular[index] = velocity_per_impulse.dot(self.normal);
+            *total += linear[index] + angular[index];
+        }
     }
 }
 
@@ -563,7 +656,8 @@ pub struct PixelObject {
     pub linear_velocity: Vec2,
     pub angular_velocity: f32,
     pub grid: PixelGrid,
-    pub physics_as: PixelPhysicsAs
+    pub physics_as: PixelPhysicsAs,
+    pub last_pos: Vec2
 }
 
 impl PixelObject {
@@ -583,14 +677,20 @@ impl PixelObject {
     }
 
     pub fn integrate(&mut self, delta_time: f32) {
-        let last_frame_linear_acceleration = self.physics_as.inverse_mass * self.forces.force;
+        self.last_frame_acceleration = self.physics_as.inverse_mass * self.forces.force;
         let last_frame_angular_acceleration = self.physics_as.inverse_inertia_tensor * self.forces.torque;
 
-        self.linear_velocity += delta_time * last_frame_linear_acceleration;
+        self.linear_velocity += delta_time * self.last_frame_acceleration;
         self.angular_velocity += delta_time * last_frame_angular_acceleration;
 
         self.linear_velocity *= 0.9999f32.powf(delta_time);
         self.angular_velocity *= 0.9999f32.powf(delta_time);
+
+        if (self.position - self.last_pos).length() > 0.4 {
+            println!("SCREMA AND CRY {}", self.position);
+        }
+
+        self.last_pos = self.position;
 
         self.position += delta_time * self.linear_velocity;
         self.rotation += delta_time * self.angular_velocity;
@@ -812,7 +912,7 @@ impl GeeseSystem for RigidPixels {
         .with::<CameraInteract>()
         .with::<CollisionDetector>()
         .with::<ContactResolver>()
-        .with::<ForceGenerators>()
+        //.with::<ForceGenerators>()
         .with::<GameWorld>()
         .with::<ObjectIntegrator>()
         .with::<Renderer>();
@@ -833,9 +933,42 @@ mod on {
 fn create_floor() -> PixelObject {
     const FLOOR_LENGTH: u32 = 512;
 
-    let mut grid = PixelGrid::new(uvec2(FLOOR_LENGTH, 1));
+    let mut grid = PixelGrid::new(uvec2(FLOOR_LENGTH, 2));
     for i in 0..FLOOR_LENGTH {
         grid.set(uvec2(i, 0), true);
+    }
+    grid.set(uvec2(256, 1), true);
+
+    let mut physics_as = PixelPhysicsAs::new(&grid);
+    physics_as.inverse_inertia_tensor = 0.0;
+    physics_as.inverse_mass = 0.0;
+
+    PixelObject {
+        position: vec2(0.0, -5.0),
+        rotation: 0.0,
+        linear_velocity: Vec2::ZERO,
+        angular_velocity: 0.0,
+        physics_as,
+        forces: ForceAccumulator::default(),
+        grid,
+        last_frame_acceleration: Vec2::ZERO,
+        last_pos: vec2(0.0, -5.0)
+    }
+}
+
+fn create_floor2() -> PixelObject {
+    const FLOOR_LENGTH: u32 = 512;
+
+    let mut grid = PixelGrid::new(uvec2(FLOOR_LENGTH, 5));
+    for x in 0..FLOOR_LENGTH {
+        let sinx = 5.0 * (0.1 * (x as f32)).sin();
+        for y in 0..5 {
+            if (y as f32) < sinx {
+                grid.set(uvec2(x, y), true);
+            }
+        }
+        
+        grid.set(uvec2(x, 0), true);
     }
 
     let mut physics_as = PixelPhysicsAs::new(&grid);
@@ -850,7 +983,8 @@ fn create_floor() -> PixelObject {
         physics_as,
         forces: ForceAccumulator::default(),
         grid,
-        last_frame_acceleration: Vec2::ZERO
+        last_frame_acceleration: Vec2::ZERO,
+        last_pos: vec2(0.0, -5.0)
     }
 }
 
@@ -873,13 +1007,16 @@ fn create_rectangle_body(position: Vec2, rotation: f32, extents: UVec2) -> Pixel
         physics_as,
         forces: ForceAccumulator::default(),
         grid,
-        last_frame_acceleration: Vec2::ZERO
+        last_frame_acceleration: Vec2::ZERO,
+        last_pos: position
     }
 }
 
 fn setup_scene(ctx: &mut GameWorld) {
+    //ctx.objects.insert(create_rectangle_body(vec2(0.0, -2.5), 0.0, uvec2(1, 3)));
+    //ctx.objects.insert(create_rectangle_body(vec2(5.0, -2.5), 0.0, uvec2(4, 2)));
     ctx.objects.insert(create_floor());
-    ctx.objects.insert(create_rectangle_body(vec2(0.0, -2.5), 0.0, uvec2(1, 3)));
+    ctx.objects.insert(create_rectangle_body(vec2(-5.0, 2.0), 0.0, uvec2(5, 1)));
 }
 
 #[macroquad::main("Rigid pixels")]
