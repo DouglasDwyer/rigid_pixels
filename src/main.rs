@@ -194,6 +194,7 @@ impl CollisionDetector {
                     contacts.push(CollisionContact {
                         objects: [a.id, b.id],
                         relative_position: [world_point - a.object.position, world_point - b.object.position],
+                        friction: 0.9,
                         restitution: 0.01,
                         penetration,
                         normal: -a_to_world_space.transform_vector3a(vec3a(normal.x, normal.y, 0.0)).xy(),
@@ -524,6 +525,7 @@ pub struct MovementDeltas {
 pub struct CollisionContact {
     pub objects: [usize; 2],
     pub relative_position: [Vec2; 2],
+    pub friction: f32,
     pub restitution: f32,
     pub penetration: f32,
     pub normal: Vec2,
@@ -532,18 +534,19 @@ pub struct CollisionContact {
 
 impl CollisionContact {
     pub fn apply_position(&self, object_a: &mut PixelObject, object_b: &mut PixelObject) -> [MovementDeltas; 2] {
-        let mut total_inertia = 0.0;
+        let mut total_inertia = Mat2::ZERO;
         let mut linear_inertia = [0.0; 2];
         let mut angular_inertia = [0.0; 2];
-        self.calculate_velocity_per_impulse(object_a, object_b, &mut total_inertia, &mut linear_inertia, &mut angular_inertia);
+        self.calculate_velocity_per_impulse(object_a, object_b, &mut total_inertia, &mut linear_inertia, &mut angular_inertia, &mut Vec2::ZERO);
+        let scalar_inertia = (total_inertia * self.normal).dot(self.normal);
 
         let mut result = [MovementDeltas::default(); 2];
         for (index, obj) in [object_a, object_b].into_iter().enumerate() {
             if 0.0 < linear_inertia[index] {
                 let sign = [1.0, -1.0][index];
     
-                let linear = sign * self.penetration * (linear_inertia[index] / total_inertia);
-                let angular = sign * self.penetration * (angular_inertia[index] / total_inertia);
+                let linear = sign * self.penetration * (linear_inertia[index] / scalar_inertia);
+                let angular = sign * self.penetration * (angular_inertia[index] / scalar_inertia);
     
                 result[index].linear_delta = linear * self.normal;
                 obj.position += result[index].linear_delta;
@@ -558,10 +561,23 @@ impl CollisionContact {
     }
 
     pub fn apply_velocity_change(&self, object_a: &mut PixelObject, object_b: &mut PixelObject, desired_velocity: f32) -> [MovementDeltas; 2] {
-        let mut velocity_change = 0.0;
-        self.calculate_velocity_per_impulse(object_a, object_b, &mut velocity_change, &mut [0.0; 2], &mut [0.0; 2]);
+        let mut velocity_change = Mat2::ZERO;
+        let mut contact_velocity = Vec2::ZERO;
+        self.calculate_velocity_per_impulse(object_a, object_b, &mut velocity_change, &mut [0.0; 2], &mut [0.0; 2], &mut contact_velocity);
 
-        let impulse = desired_velocity / velocity_change * self.normal;
+        let velocity_to_kill = desired_velocity * self.normal - contact_velocity.reject_from_normalized(self.normal);
+        let impulse_per_velocity = velocity_change.inverse();
+        let mut impulse = impulse_per_velocity * velocity_to_kill;
+
+        let contact_impulse = impulse.dot(self.normal);
+        let planar_impulse = impulse.reject_from_normalized(self.normal);
+        let planar_impulse_length = planar_impulse.length();
+        if planar_impulse_length > contact_impulse * self.friction {
+            let scaled_planar_impulse = self.friction * planar_impulse / planar_impulse_length;
+            let new_contact_velocity = (velocity_change * (self.normal + scaled_planar_impulse)).dot(self.normal);
+            let impulse_len = desired_velocity / new_contact_velocity;
+            impulse = impulse_len * (self.normal + scaled_planar_impulse);
+        }
 
         let mut results = [MovementDeltas::default(); 2];
 
@@ -605,15 +621,18 @@ impl CollisionContact {
         res
     }
 
-    fn calculate_velocity_per_impulse(&self, object_a: &PixelObject, object_b: &PixelObject, total: &mut f32, linear: &mut [f32; 2], angular: &mut [f32; 2]) {
+    fn calculate_velocity_per_impulse(&self, object_a: &PixelObject, object_b: &PixelObject, total: &mut Mat2, linear: &mut [f32; 2], angular: &mut [f32; 2], total_current_velocity: &mut Vec2) {
         for (index, obj) in [object_a, object_b].into_iter().enumerate() {
             let relative_contact = self.relative_position[index];
-            let angular_velocity_per_impulse = obj.physics_as.inverse_inertia_tensor * relative_contact.perp_dot(self.normal);
-            let velocity_per_impulse = Vec2::Y.rotate(relative_contact) * angular_velocity_per_impulse;
+            
+            *total_current_velocity += [1.0, -1.0][index] * (Vec2::Y.rotate(relative_contact) * obj.angular_velocity + obj.linear_velocity);
+            let relative_direction = relative_contact.normalize_or_zero();
+            let rejection_matrix = Mat2::IDENTITY - mat2(relative_direction, relative_direction) * Mat2::from_diagonal(relative_direction);
+            let angular_velocity_per_impulse = Mat2::from_diagonal(Vec2::splat(obj.physics_as.inverse_inertia_tensor * relative_contact.length())) * rejection_matrix;
 
             linear[index] = obj.physics_as.inverse_mass;
-            angular[index] = velocity_per_impulse.dot(self.normal);
-            *total += linear[index] + angular[index];
+            angular[index] = (angular_velocity_per_impulse * self.normal).dot(self.normal);
+            *total += Mat2::from_diagonal(Vec2::splat(linear[index])) + angular_velocity_per_impulse;
         }
     }
 }
