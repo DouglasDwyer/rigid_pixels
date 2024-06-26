@@ -13,7 +13,7 @@ pub struct CameraControl {
 
 impl CameraControl {
     fn update_camera_position(&mut self, _: &on::Frame) {
-        const PIXELS_PER_WORLD_UNIT: f32 = 10.0;
+        const PIXELS_PER_WORLD_UNIT: f32 = 7.0;
         const CAMERA_MOVEMENT_COEFFICIENT: f32 = 5.0;
 
         let mut world = self.ctx.get_mut::<GameWorld>();
@@ -142,9 +142,9 @@ impl CollisionDetector {
 
         let world = self.ctx.get::<GameWorld>();
         for a in 0..world.objects.capacity() {
-            if let Some(object_a) = world.objects.get(a) {
+            if let Some(_) = world.objects.get(a) {
                 for b in (a + 1)..world.objects.capacity() {
-                    if let Some(object_b) = world.objects.get(b) {
+                    if let Some(_) = world.objects.get(b) {
                         let a_descriptor = CollisionDetectionObject {
                             id: a,
                             object: &world.objects[a]
@@ -184,8 +184,6 @@ impl CollisionDetector {
                         PixelKind::Interior => continue,
                     };
 
-                    //assert!(delta.try_normalize().is_some(), "Col between {corner:?} {position:?} (which lies at {b_pixel_position:?} for {b_to_a:?} (with {a_to_world_space:?})");
-
                     let contact_point = b_pixel_position - 0.5 * delta;
                     let penetration = ((normal.signum() - delta) / normal).min_element();
 
@@ -194,8 +192,8 @@ impl CollisionDetector {
                     contacts.push(CollisionContact {
                         objects: [a.id, b.id],
                         relative_position: [world_point - a.object.position, world_point - b.object.position],
-                        friction: 0.9,
-                        restitution: 0.01,
+                        friction: 0.01,
+                        restitution: 0.3,
                         penetration,
                         normal: -a_to_world_space.transform_vector3a(vec3a(normal.x, normal.y, 0.0)).xy(),
                         world_pos: world_point
@@ -205,7 +203,7 @@ impl CollisionDetector {
         }
     }
 
-    fn detect_collisions(&mut self, _: &on::PhysicsUpdate) {
+    fn detect_collisions(&mut self, _: &on::PhysicsStep) {
         self.generate_contacts();
     }
 }
@@ -231,11 +229,10 @@ pub struct ContactResolver {
 }
 
 impl ContactResolver {
-    fn adjust_positions(&mut self, delta_time: f32) {
+    fn adjust_positions(&mut self, _: f32) {
         let mut contacts = self.ctx.get::<CollisionDetector>().contacts().to_vec();
         let mut world = self.ctx.get_mut::<GameWorld>();
-        let initial_poses = world.objects.iter().map(|x| x.1.position).collect::<Vec<_>>();
-
+        
         let mut iterations = 0;
         while iterations < 2 * contacts.len() {
             let mut max_penetration = 0.001;
@@ -260,7 +257,6 @@ impl ContactResolver {
                 for (body_index, body_id) in affected_objects.into_iter().enumerate() {
                     for (index, id) in to_update.objects.into_iter().enumerate() {
                         if body_id == id {
-                            let obj = &world.objects[body_id];
                             let delta_position = movement_deltas[body_index].linear_delta + Vec2::Y.rotate(to_update.relative_position[index]) * movement_deltas[body_index].angular_delta;
                             to_update.penetration += [-1.0, 1.0][index] * delta_position.dot(to_update.normal);
                         }
@@ -294,11 +290,11 @@ impl ContactResolver {
 
             let max_contact = &contacts[index_max];
             let (object_a, object_b) = world.objects.get2_mut(max_contact.objects[0], max_contact.objects[1]).unwrap();
-            let deltas = max_contact.apply_velocity_change(object_a, object_b, desired_velocities[index_max]);
+            max_contact.apply_velocity_change(object_a, object_b, desired_velocities[index_max]);
 
             for (contact_index, contact) in contacts.iter().enumerate() {
-                for (index, obj) in contact.objects.into_iter().enumerate() {
-                    let matching_index = if obj == max_contact.objects[0] {
+                for (_, obj) in contact.objects.into_iter().enumerate() {
+                    if obj == max_contact.objects[0] {
                         0
                     }
                     else if obj == max_contact.objects[1] {
@@ -315,7 +311,7 @@ impl ContactResolver {
         }
     }
 
-    fn resolve_contacts(&mut self, event: &on::PhysicsUpdate) {
+    fn resolve_contacts(&mut self, event: &on::PhysicsStep) {
         self.adjust_positions(event.delta_time);
         self.adjust_velocities(event.delta_time);
     }
@@ -341,10 +337,36 @@ pub struct ObjectIntegrator {
 }
 
 impl ObjectIntegrator {
-    fn move_objects(&mut self, event: &on::PhysicsUpdate) {
+    fn schedule_steps(&mut self, event: &on::PhysicsUpdate) {
+        let mut required_steps = 1;
+        let mut world = self.ctx.get_mut::<GameWorld>();
+        for (_, object) in &mut world.objects {
+            let max_speed = (object.linear_velocity + event.delta_time * (object.physics_as.inverse_mass * object.forces.force)).length();
+
+            let last_frame_angular_acceleration = object.physics_as.inverse_inertia_tensor * object.forces.torque;
+            let max_radial_speed = object.physics_as.radius * (object.angular_velocity + event.delta_time * last_frame_angular_acceleration);
+            let tmax = max_radial_speed.max(max_speed);
+            required_steps = required_steps.max((2.0 * tmax * event.delta_time).ceil() as u32);
+        }
+        drop(world);
+        let delta_time = event.delta_time / required_steps as f32;
+        for _ in 0..required_steps {
+            self.ctx.raise_event(on::PhysicsStep { delta_time });
+        }
+        self.ctx.raise_event(on::PhysicsResetForces);
+    }
+
+    fn move_objects(&mut self, event: &on::PhysicsStep) {
         let mut world = self.ctx.get_mut::<GameWorld>();
         for (_, object) in &mut world.objects {
             object.integrate(event.delta_time);
+        }
+    }
+    
+    fn reset_forces(&mut self, _: &on::PhysicsResetForces) {
+        let mut world = self.ctx.get_mut::<GameWorld>();
+        for (_, object) in &mut world.objects {
+            object.forces = ForceAccumulator::default();
         }
     }
 }
@@ -354,7 +376,9 @@ impl GeeseSystem for ObjectIntegrator {
         .with::<Mut<GameWorld>>();
 
     const EVENT_HANDLERS: EventHandlers<Self> = event_handlers()
-        .with(Self::move_objects);
+        .with(Self::schedule_steps)
+        .with(Self::move_objects)
+        .with(Self::reset_forces);
 
     fn new(ctx: GeeseContextHandle<Self>) -> Self {
         Self {
@@ -372,7 +396,7 @@ impl Gravity {
         let mut world = self.ctx.get_mut::<GameWorld>();
 
         for (_, object) in &mut world.objects {
-            object.add_force_at_center(vec2(0.0, -9.81 * object.physics_as.mass));
+            object.add_force_at_center(vec2(0.0, -9.81 * 16.0 * object.physics_as.mass));
         }
     }
 }
@@ -446,6 +470,10 @@ pub struct Renderer {
 }
 
 impl Renderer {
+    fn draw_gui(&self) {
+        draw_text("Click and drag objects to move them. Press r to reset.", 10.0, 20.0, 24.0, WHITE);
+    }
+
     fn draw_object(&self, projection_view: Mat4, object: &PixelObject) {
         const OUTLINE_SIZE: f32 = 0.1;
 
@@ -479,6 +507,7 @@ impl Renderer {
         let projection_view = self.ctx.get::<GameWorld>().camera_view_projection;
         self.draw_objects(projection_view);
         self.draw_origin(projection_view);
+        self.draw_gui();
 
     }
 }
@@ -537,7 +566,8 @@ impl CollisionContact {
         let mut total_inertia = Mat2::ZERO;
         let mut linear_inertia = [0.0; 2];
         let mut angular_inertia = [0.0; 2];
-        self.calculate_velocity_per_impulse(object_a, object_b, &mut total_inertia, &mut linear_inertia, &mut angular_inertia, &mut Vec2::ZERO);
+        let mut _vel = Vec2::ZERO;
+        self.calculate_velocity_per_impulse(object_a, object_b, &mut total_inertia, &mut linear_inertia, &mut angular_inertia, &mut _vel);
         let scalar_inertia = (total_inertia * self.normal).dot(self.normal);
 
         let mut result = [MovementDeltas::default(); 2];
@@ -589,14 +619,7 @@ impl CollisionContact {
             deltas.angular_delta = [1.0, -1.0][index] * obj.physics_as.inverse_inertia_tensor * impulsive_torque;
 
             obj.linear_velocity += deltas.linear_delta;
-
-            if !obj.linear_velocity.is_finite() {
-                panic!("STINKY {deltas:?} {velocity_change:?} {impulse:?} {desired_velocity}");
-            }
             obj.angular_velocity += deltas.angular_delta;
-            if !obj.angular_velocity.is_finite() {
-                panic!("STINKY2Y {deltas:?} {velocity_change:?} {impulse:?} {desired_velocity}");
-            }
         }
 
         results
@@ -613,9 +636,7 @@ impl CollisionContact {
         }
 
         let contact_velocity = total_current_velocity.dot(self.normal);
-        let mut restitution = (0.25 < contact_velocity).then_some(self.restitution).unwrap_or_default();
-
-        // todo: make things not jumpy.
+        
         let res = -contact_velocity - self.restitution * (contact_velocity - velocity_from_acceleration);
 
         res
@@ -676,7 +697,6 @@ pub struct PixelObject {
 
 impl PixelObject {
     pub fn model_transform(&self) -> Mat4 {
-        let offset = self.position - self.physics_as.local_center_of_mass;
         Mat4::from_rotation_translation(Quat::from_rotation_z(self.rotation), vec3(self.position.x, self.position.y, 0.0))
             * Mat4::from_translation(vec3(-self.physics_as.local_center_of_mass.x, -self.physics_as.local_center_of_mass.y, 0.0))
     }
@@ -704,8 +724,6 @@ impl PixelObject {
 
         self.position += delta_time * self.linear_velocity;
         self.rotation += delta_time * self.angular_velocity;
-
-        self.forces = ForceAccumulator::default();
     }
 }
 
@@ -757,6 +775,7 @@ pub struct PixelPhysicsAs {
     classifications: Vec<PixelKind>,
     corners: Vec<UVec2>,
     grid: PixelGrid,
+    radius: f32
 }
 
 impl PixelPhysicsAs {
@@ -768,7 +787,8 @@ impl PixelPhysicsAs {
             grid: PixelGrid::default(),
             mass: 0.0,
             inverse_mass: 0.0,
-            inverse_inertia_tensor: 0.0
+            inverse_inertia_tensor: 0.0,
+            radius: 0.0
         };
 
         result.update(grid);
@@ -856,16 +876,23 @@ impl PixelPhysicsAs {
         self.classifications.clear();
         self.corners.clear();
 
+        let mut min_val = UVec2::splat(u32::MAX);
+        let mut max_val = UVec2::ZERO;
         for y in 0..self.grid.size().y {
             for x in 0..self.grid.size().x {
                 let classification = self.classify(uvec2(x, y));
                 if classification == PixelKind::Corner {
                     self.corners.push(uvec2(x, y));
                 }
+                if classification == PixelKind::Empty {
+                    min_val = min_val.min(uvec2(x, y));
+                    max_val = max_val.max(uvec2(x, y));
+                }
                 self.classifications.push(classification);
             }
         }
 
+        self.radius = (min_val.min(max_val) - max_val).as_vec2().length() / 2.0;
         self.update_mass_and_inertia();
     }
 
@@ -895,7 +922,7 @@ impl PixelPhysicsAs {
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[repr(u8)]
-enum PixelKind {
+pub enum PixelKind {
     Empty,
     Corner,
     EdgeX,
@@ -908,7 +935,6 @@ pub struct ForceGenerators;
 impl GeeseSystem for ForceGenerators {
     const DEPENDENCIES: Dependencies = dependencies()
         .with::<Gravity>();
-        //.with::<Spring>();
 
     fn new(_: GeeseContextHandle<Self>) -> Self {
         Self
@@ -939,8 +965,15 @@ mod on {
     pub struct PhysicsUpdate {
         pub delta_time: f32
     }
+
+    pub struct PhysicsStep {
+        pub delta_time: f32
+    }
+
+    pub struct PhysicsResetForces;
 }
 
+#[allow(unused)]
 fn create_floor() -> PixelObject {
     const FLOOR_LENGTH: u32 = 512;
 
@@ -1051,31 +1084,37 @@ fn create_circle_body(position: Vec2, rotation: f32, radius: f32) -> PixelObject
 fn setup_scene(ctx: &mut GameWorld) {
     //ctx.objects.insert(create_rectangle_body(vec2(0.0, -2.5), 0.0, uvec2(1, 3)));
     ctx.objects.insert(create_floor2());
-    ctx.objects.insert(create_rectangle_body(vec2(5.0, 10.5), 0.0, uvec2(10, 5)));
-    //ctx.objects.insert(create_circle_body(vec2(-2.0, 0.0), 0.2, 2.0));
+    ctx.objects.insert(create_rectangle_body(vec2(25.0, 20.5), 0.0, uvec2(15, 17)));
+    ctx.objects.insert(create_circle_body(vec2(-2.0, 10.0), 0.2, 10.0));
     //ctx.objects.insert(create_rectangle_body(vec2(-5.0, 2.0), 0.0, uvec2(3, 3)));
 }
 
 #[macroquad::main("Rigid pixels")]
 async fn main() {
-    let mut ctx = GeeseContext::default();
-    ctx.flush()
-        .with(geese::notify::add_system::<RigidPixels>());
-    setup_scene(&mut ctx.get_mut::<GameWorld>());
-
-    let mut next_physics_time = Instant::now();
-    let physics_delta = Duration::from_millis(25);
-
     loop {
+        let mut ctx = GeeseContext::default();
         ctx.flush()
-            .with(on::Frame);
-
-        while next_physics_time < Instant::now() {
+            .with(geese::notify::add_system::<RigidPixels>());
+        setup_scene(&mut ctx.get_mut::<GameWorld>());
+    
+        let mut next_physics_time = Instant::now();
+        let physics_delta = Duration::from_millis(25);
+    
+        loop {
             ctx.flush()
-                .with(on::PhysicsUpdate { delta_time: physics_delta.as_secs_f32() });
-            next_physics_time += physics_delta;
+                .with(on::Frame);
+    
+            while next_physics_time < Instant::now() {
+                ctx.flush()
+                    .with(on::PhysicsUpdate { delta_time: physics_delta.as_secs_f32() });
+                next_physics_time += physics_delta;
+            }
+    
+            next_frame().await;
+            
+            if is_key_pressed(KeyCode::R) {
+                break;
+            }
         }
-
-        next_frame().await
     }
 }
