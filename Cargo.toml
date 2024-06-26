@@ -6,6 +6,10 @@ edition = "2021"
 [profile.dev]
 overflow-checks=false
 
+[profile.release]
+overflow-checks=false
+panic="abort"
+
 [dependencies]
 bitvec = { version = "1.0.1", default-features = false }
 geese = { version = "0.3.9", default-features = false }
