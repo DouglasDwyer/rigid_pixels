@@ -5,7 +5,6 @@ use geese::*;
 use macroquad::prelude::*;
 use slab::*;
 use std::mem::*;
-use std::time::*;
 
 pub struct CameraControl {
     ctx: GeeseContextHandle<Self>
@@ -1097,16 +1096,16 @@ async fn main() {
             .with(geese::notify::add_system::<RigidPixels>());
         setup_scene(&mut ctx.get_mut::<GameWorld>());
     
-        let mut next_physics_time = Instant::now();
-        let physics_delta = Duration::from_millis(25);
+        let mut next_physics_time = get_time();
+        let physics_delta = 0.025 as f64;
     
         loop {
             ctx.flush()
                 .with(on::Frame);
     
-            while next_physics_time < Instant::now() {
+            while next_physics_time < get_time() {
                 ctx.flush()
-                    .with(on::PhysicsUpdate { delta_time: physics_delta.as_secs_f32() });
+                    .with(on::PhysicsUpdate { delta_time: physics_delta as f32 });
                 next_physics_time += physics_delta;
             }
     
