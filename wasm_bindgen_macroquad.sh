@@ -94,7 +94,6 @@ HTML=$(
 		            load("./${PROJECT_NAME}_bg.wasm");
 		        }
 		        window.run = function() {
-		            document.getElementById("run-container").remove();
 		            document.getElementById("glcanvas").removeAttribute("hidden");
 		            document.getElementById("glcanvas").focus();
 		            impl_run();
