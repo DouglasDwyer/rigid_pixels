@@ -13,7 +13,7 @@ pub struct CameraControl {
 
 impl CameraControl {
     fn update_camera_position(&mut self, _: &on::Frame) {
-        const PIXELS_PER_WORLD_UNIT: f32 = 50.0;
+        const PIXELS_PER_WORLD_UNIT: f32 = 10.0;
         const CAMERA_MOVEMENT_COEFFICIENT: f32 = 5.0;
 
         let mut world = self.ctx.get_mut::<GameWorld>();
@@ -77,7 +77,7 @@ impl CameraInteract {
         let mut world = self.ctx.get_mut::<GameWorld>();
         if self.interacting && let Some(object) = world.objects.get_mut(self.selected_object) {
             let constants = SpringConstants {
-                k: 100.0,
+                k: 10000.0,
                 rest_length: 0.0,
                 drag: 10.0,
                 origin: world_click_position
@@ -626,13 +626,21 @@ impl CollisionContact {
             let relative_contact = self.relative_position[index];
             
             *total_current_velocity += [1.0, -1.0][index] * (Vec2::Y.rotate(relative_contact) * obj.angular_velocity + obj.linear_velocity);
-            let relative_direction = relative_contact.normalize_or_zero();
-            let rejection_matrix = Mat2::IDENTITY - mat2(relative_direction, relative_direction) * Mat2::from_diagonal(relative_direction);
-            let angular_velocity_per_impulse = Mat2::from_diagonal(Vec2::splat(obj.physics_as.inverse_inertia_tensor * relative_contact.length())) * rejection_matrix;
+
+            let angular_velocity_per_impulse = obj.physics_as.inverse_inertia_tensor * relative_contact.perp_dot(self.normal);
+            let velocity_per_impulse = Vec2::Y.rotate(relative_contact) * angular_velocity_per_impulse;
+
+            let torque_per_impulse = vec2(-relative_contact.y, relative_contact.x);
+            let angular_velocity_per_impulse = obj.physics_as.inverse_inertia_tensor * torque_per_impulse;
+
+            let angular_direction = Vec2::Y.rotate(relative_contact);
+            let velocity_per_impulse2 = mat2(
+                vec2(angular_direction.x * angular_velocity_per_impulse.x, angular_direction.y * angular_velocity_per_impulse.x),
+                vec2(angular_direction.x * angular_velocity_per_impulse.y, angular_direction.y * angular_velocity_per_impulse.y));
 
             linear[index] = obj.physics_as.inverse_mass;
-            angular[index] = (angular_velocity_per_impulse * self.normal).dot(self.normal);
-            *total += Mat2::from_diagonal(Vec2::splat(linear[index])) + angular_velocity_per_impulse;
+            angular[index] = velocity_per_impulse.dot(self.normal);
+            *total += Mat2::from_diagonal(Vec2::splat(linear[index])) + velocity_per_impulse2;
         }
     }
 }
@@ -1043,8 +1051,8 @@ fn create_circle_body(position: Vec2, rotation: f32, radius: f32) -> PixelObject
 fn setup_scene(ctx: &mut GameWorld) {
     //ctx.objects.insert(create_rectangle_body(vec2(0.0, -2.5), 0.0, uvec2(1, 3)));
     ctx.objects.insert(create_floor2());
-    ctx.objects.insert(create_rectangle_body(vec2(5.0, 0.5), 0.0, uvec2(2, 3)));
-    ctx.objects.insert(create_circle_body(vec2(-2.0, 0.0), 0.2, 2.0));
+    ctx.objects.insert(create_rectangle_body(vec2(5.0, 10.5), 0.0, uvec2(10, 5)));
+    //ctx.objects.insert(create_circle_body(vec2(-2.0, 0.0), 0.2, 2.0));
     //ctx.objects.insert(create_rectangle_body(vec2(-5.0, 2.0), 0.0, uvec2(3, 3)));
 }
 
