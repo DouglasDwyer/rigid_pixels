@@ -99,10 +99,8 @@ HTML=$(
 		            document.getElementById("glcanvas").focus();
 		            impl_run();
 		        }
+                run();
 		    </script>
-		    <div id="run-container" style="display: flex; justify-content: center; align-items: center; height: 100%; flex-direction: column;">
-		        <button onclick="run()">Run Game</button>
-		    </div>
 		</body>
 		</html>
 	END
