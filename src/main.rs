@@ -13,7 +13,7 @@ pub struct CameraControl {
 
 impl CameraControl {
     fn update_camera_position(&mut self, _: &on::Frame) {
-        const PIXELS_PER_WORLD_UNIT: f32 = 50.0;
+        const PIXELS_PER_WORLD_UNIT: f32 = 5.0;
         const CAMERA_MOVEMENT_COEFFICIENT: f32 = 5.0;
 
         let mut world = self.ctx.get_mut::<GameWorld>();
@@ -77,7 +77,7 @@ impl CameraInteract {
         let mut world = self.ctx.get_mut::<GameWorld>();
         if self.interacting && let Some(object) = world.objects.get_mut(self.selected_object) {
             let constants = SpringConstants {
-                k: 100.0,
+                k: 10000.0,
                 rest_length: 0.0,
                 drag: 10.0,
                 origin: world_click_position
@@ -204,7 +204,7 @@ impl CollisionDetector {
         }
     }
 
-    fn detect_collisions(&mut self, _: &on::PhysicsUpdate) {
+    fn detect_collisions(&mut self, _: &on::PhysicsStep) {
         self.generate_contacts();
     }
 }
@@ -314,7 +314,7 @@ impl ContactResolver {
         }
     }
 
-    fn resolve_contacts(&mut self, event: &on::PhysicsUpdate) {
+    fn resolve_contacts(&mut self, event: &on::PhysicsStep) {
         self.adjust_positions(event.delta_time);
         self.adjust_velocities(event.delta_time);
     }
@@ -340,10 +340,36 @@ pub struct ObjectIntegrator {
 }
 
 impl ObjectIntegrator {
-    fn move_objects(&mut self, event: &on::PhysicsUpdate) {
+    fn schedule_steps(&mut self, event: &on::PhysicsUpdate) {
+        let mut required_steps = 1;
+        let mut world = self.ctx.get_mut::<GameWorld>();
+        for (_, object) in &mut world.objects {
+            let max_speed = (object.linear_velocity + event.delta_time * (object.physics_as.inverse_mass * object.forces.force)).length();
+
+            let last_frame_angular_acceleration = object.physics_as.inverse_inertia_tensor * object.forces.torque;
+            let max_radial_speed = object.physics_as.radius * (object.angular_velocity + event.delta_time * last_frame_angular_acceleration);
+            let tmax = max_radial_speed.max(max_speed);
+            required_steps = required_steps.max((2.0 * max_speed * event.delta_time).ceil() as u32);
+        }
+        drop(world);
+        let delta_time = event.delta_time / required_steps as f32;
+        for i in 0..required_steps {
+            self.ctx.raise_event(on::PhysicsStep { delta_time });
+        }
+        self.ctx.raise_event(on::PhysicsResetForces);
+    }
+
+    fn move_objects(&mut self, event: &on::PhysicsStep) {
         let mut world = self.ctx.get_mut::<GameWorld>();
         for (_, object) in &mut world.objects {
             object.integrate(event.delta_time);
+        }
+    }
+    
+    fn reset_forces(&mut self, _: &on::PhysicsResetForces) {
+        let mut world = self.ctx.get_mut::<GameWorld>();
+        for (_, object) in &mut world.objects {
+            object.forces = ForceAccumulator::default();
         }
     }
 }
@@ -353,7 +379,9 @@ impl GeeseSystem for ObjectIntegrator {
         .with::<Mut<GameWorld>>();
 
     const EVENT_HANDLERS: EventHandlers<Self> = event_handlers()
-        .with(Self::move_objects);
+        .with(Self::schedule_steps)
+        .with(Self::move_objects)
+        .with(Self::reset_forces);
 
     fn new(ctx: GeeseContextHandle<Self>) -> Self {
         Self {
@@ -371,7 +399,7 @@ impl Gravity {
         let mut world = self.ctx.get_mut::<GameWorld>();
 
         for (_, object) in &mut world.objects {
-            object.add_force_at_center(vec2(0.0, -9.81 * object.physics_as.mass));
+            object.add_force_at_center(vec2(0.0, -9.81 * 16.0 * object.physics_as.mass));
         }
     }
 }
@@ -677,8 +705,6 @@ impl PixelObject {
 
         self.position += delta_time * self.linear_velocity;
         self.rotation += delta_time * self.angular_velocity;
-
-        self.forces = ForceAccumulator::default();
     }
 }
 
@@ -730,6 +756,7 @@ pub struct PixelPhysicsAs {
     classifications: Vec<PixelKind>,
     corners: Vec<UVec2>,
     grid: PixelGrid,
+    radius: f32
 }
 
 impl PixelPhysicsAs {
@@ -741,7 +768,8 @@ impl PixelPhysicsAs {
             grid: PixelGrid::default(),
             mass: 0.0,
             inverse_mass: 0.0,
-            inverse_inertia_tensor: 0.0
+            inverse_inertia_tensor: 0.0,
+            radius: 0.0
         };
 
         result.update(grid);
@@ -829,16 +857,23 @@ impl PixelPhysicsAs {
         self.classifications.clear();
         self.corners.clear();
 
+        let mut min_val = UVec2::splat(u32::MAX);
+        let mut max_val = UVec2::ZERO;
         for y in 0..self.grid.size().y {
             for x in 0..self.grid.size().x {
                 let classification = self.classify(uvec2(x, y));
                 if classification == PixelKind::Corner {
                     self.corners.push(uvec2(x, y));
                 }
+                if classification == PixelKind::Empty {
+                    min_val = min_val.min(uvec2(x, y));
+                    max_val = max_val.max(uvec2(x, y));
+                }
                 self.classifications.push(classification);
             }
         }
 
+        self.radius = (min_val.min(max_val) - max_val).as_vec2().length() / 2.0;
         self.update_mass_and_inertia();
     }
 
@@ -912,6 +947,12 @@ mod on {
     pub struct PhysicsUpdate {
         pub delta_time: f32
     }
+
+    pub struct PhysicsStep {
+        pub delta_time: f32
+    }
+
+    pub struct PhysicsResetForces;
 }
 
 fn create_floor() -> PixelObject {
@@ -1024,8 +1065,8 @@ fn create_circle_body(position: Vec2, rotation: f32, radius: f32) -> PixelObject
 fn setup_scene(ctx: &mut GameWorld) {
     //ctx.objects.insert(create_rectangle_body(vec2(0.0, -2.5), 0.0, uvec2(1, 3)));
     ctx.objects.insert(create_floor2());
-    ctx.objects.insert(create_rectangle_body(vec2(5.0, 0.5), 0.0, uvec2(2, 3)));
-    ctx.objects.insert(create_circle_body(vec2(-2.0, 0.0), 0.2, 2.0));
+    ctx.objects.insert(create_rectangle_body(vec2(25.0, 20.5), 0.0, uvec2(20, 20)));
+    ctx.objects.insert(create_circle_body(vec2(-2.0, 10.0), 0.2, 13.0));
     //ctx.objects.insert(create_rectangle_body(vec2(-5.0, 2.0), 0.0, uvec2(3, 3)));
 }
 
