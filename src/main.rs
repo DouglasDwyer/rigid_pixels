@@ -78,7 +78,7 @@ impl CameraInteract {
             let constants = SpringConstants {
                 k: 10000.0,
                 rest_length: 0.0,
-                drag: 10.0,
+                drag: 1000.0,
                 origin: world_click_position
             };
 
@@ -341,11 +341,7 @@ impl ObjectIntegrator {
         let mut world = self.ctx.get_mut::<GameWorld>();
         for (_, object) in &mut world.objects {
             let max_speed = (object.linear_velocity + event.delta_time * (object.physics_as.inverse_mass * object.forces.force)).length();
-
-            let last_frame_angular_acceleration = object.physics_as.inverse_inertia_tensor * object.forces.torque;
-            let max_radial_speed = object.physics_as.radius * (object.angular_velocity + event.delta_time * last_frame_angular_acceleration);
-            let tmax = max_radial_speed.max(max_speed);
-            required_steps = required_steps.max((2.0 * tmax * event.delta_time).ceil() as u32);
+            required_steps = required_steps.max((2.0 * max_speed * event.delta_time).ceil() as u32);
         }
         drop(world);
         let delta_time = event.delta_time / required_steps as f32;
