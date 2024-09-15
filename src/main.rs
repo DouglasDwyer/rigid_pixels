@@ -71,7 +71,7 @@ impl CameraInteract {
         }
     }
 
-    fn apply_force_to_selected(&mut self, _: &on::PhysicsUpdate) {
+    fn apply_force_to_selected(&mut self, _: &on::PhysicsAccumulateForces) {
         let world_click_position = self.world_click_position();
         let mut world = self.ctx.get_mut::<GameWorld>();
         if self.interacting && let Some(object) = world.objects.get_mut(self.selected_object) {
@@ -175,13 +175,14 @@ impl CollisionDetector {
                 let position = min_pixel + offset;
                 if a.object.physics_as.get_or_empty(position) {
                     let delta = b_pixel_position - (position.as_vec2() + Vec2::splat(0.5));
-                    let normal = match a.object.physics_as.classification(position) {
-                        PixelKind::Empty => unreachable!(),
-                        PixelKind::Corner => delta.normalize_or_zero(),
-                        PixelKind::EdgeX => vec2(delta.x.signum(), 0.0),
-                        PixelKind::EdgeY => vec2(0.0, delta.y.signum()),
-                        PixelKind::Interior => continue,
-                    };
+
+                    let neighbors = a.object.physics_as.neighbors(position);
+                    let lower = BVec2::new((neighbors & 0b1) != 0, (neighbors & 0b100) != 0);
+                    let upper = BVec2::new((neighbors & 0b10) != 0, (neighbors & 0b1000) != 0);
+                    let clamped_lower = Vec2::select(lower, delta.max(Vec2::ZERO), delta);
+                    let normal = Vec2::select(upper, clamped_lower.min(Vec2::ZERO), clamped_lower).normalize();
+
+                    //println!("NORMAL ES {normal} for delt {delta}, neighbs {neighbors} at {corner}/{position} for {}/{}", b.id, a.id);
 
                     let contact_point = b_pixel_position - 0.5 * delta;
                     let penetration = ((normal.signum() - delta) / normal).min_element();
@@ -340,7 +341,9 @@ impl ObjectIntegrator {
         let mut required_steps = 1;
         let mut world = self.ctx.get_mut::<GameWorld>();
         for (_, object) in &mut world.objects {
-            let max_speed = (object.linear_velocity + event.delta_time * (object.physics_as.inverse_mass * object.forces.force)).length();
+            let max_speed = (object.linear_velocity + event.delta_time * (object.physics_as.inverse_mass * object.forces.force)).length()
+                + object.angular_velocity.abs() * 10.0;
+            
             required_steps = required_steps.max((2.0 * max_speed * event.delta_time).ceil() as u32);
         }
         drop(world);
@@ -387,7 +390,7 @@ pub struct Gravity {
 }
 
 impl Gravity {
-    fn apply_gravity(&mut self, _: &on::PhysicsUpdate) {
+    fn apply_gravity(&mut self, _: &on::PhysicsAccumulateForces) {
         let mut world = self.ctx.get_mut::<GameWorld>();
 
         for (_, object) in &mut world.objects {
@@ -430,7 +433,7 @@ impl Spring {
         acceleration_term - drag_term
     }
 
-    fn apply_force(&mut self, _: &on::PhysicsUpdate) {
+    fn apply_force(&mut self, _: &on::PhysicsAccumulateForces) {
         const CONSTANTS: SpringConstants = SpringConstants {
             k: 4.0,
             rest_length: 1.0,
@@ -767,7 +770,7 @@ pub struct PixelPhysicsAs {
     mass: f32,
     inverse_mass: f32,
     inverse_inertia_tensor: f32,
-    classifications: Vec<PixelKind>,
+    neighbors: Vec<u8>,
     corners: Vec<UVec2>,
     grid: PixelGrid,
     radius: f32
@@ -777,7 +780,7 @@ impl PixelPhysicsAs {
     pub fn new(grid: &PixelGrid) -> Self {
         let mut result = Self {
             local_center_of_mass: Vec2::ZERO,
-            classifications: Vec::new(),
+            neighbors: Vec::new(),
             corners: Vec::new(),
             grid: PixelGrid::default(),
             mass: 0.0,
@@ -790,8 +793,8 @@ impl PixelPhysicsAs {
         result
     }
 
-    pub fn classification(&self, position: UVec2) -> PixelKind {
-        self.classifications[(position.x + position.y * self.grid.size().x) as usize]
+    pub fn neighbors(&self, position: UVec2) -> u8 {
+        self.neighbors[(position.x + position.y * self.grid.size().x) as usize]
     }
 
     fn update(&mut self, grid: &PixelGrid) {
@@ -801,7 +804,7 @@ impl PixelPhysicsAs {
         }
     }
 
-    fn classify(&self, position: UVec2) -> PixelKind {
+    fn classify(&self, position: UVec2) -> (PixelKind, u8) {
         const CLASSIFICATIONS: [PixelKind; 16] = [
             PixelKind::Corner,  //   - 
                                 // - * - 
@@ -860,22 +863,22 @@ impl PixelPhysicsAs {
                     result |= 1 << index;
                 }
             }
-            CLASSIFICATIONS[result]
+            (CLASSIFICATIONS[result], result as u8)
         }
         else {
-            PixelKind::Empty
+            (PixelKind::Empty, 0)
         }
     }
 
     fn rebuild(&mut self) {
-        self.classifications.clear();
+        self.neighbors.clear();
         self.corners.clear();
 
         let mut min_val = UVec2::splat(u32::MAX);
         let mut max_val = UVec2::ZERO;
         for y in 0..self.grid.size().y {
             for x in 0..self.grid.size().x {
-                let classification = self.classify(uvec2(x, y));
+                let (classification, neighbors) = self.classify(uvec2(x, y));
                 if classification == PixelKind::Corner {
                     self.corners.push(uvec2(x, y));
                 }
@@ -883,7 +886,7 @@ impl PixelPhysicsAs {
                     min_val = min_val.min(uvec2(x, y));
                     max_val = max_val.max(uvec2(x, y));
                 }
-                self.classifications.push(classification);
+                self.neighbors.push(neighbors);
             }
         }
 
@@ -956,6 +959,8 @@ impl GeeseSystem for RigidPixels {
 
 mod on {
     pub struct Frame;
+
+    pub struct PhysicsAccumulateForces;
 
     pub struct PhysicsUpdate {
         pub delta_time: f32
@@ -1078,8 +1083,8 @@ fn create_circle_body(position: Vec2, rotation: f32, radius: f32) -> PixelObject
 
 fn setup_scene(ctx: &mut GameWorld) {
     //ctx.objects.insert(create_rectangle_body(vec2(0.0, -2.5), 0.0, uvec2(1, 3)));
-    ctx.objects.insert(create_floor2());
     ctx.objects.insert(create_rectangle_body(vec2(25.0, 20.5), 0.0, uvec2(15, 17)));
+    ctx.objects.insert(create_floor2());
     ctx.objects.insert(create_circle_body(vec2(-2.0, 10.0), 0.2, 10.0));
     //ctx.objects.insert(create_rectangle_body(vec2(-5.0, 2.0), 0.0, uvec2(3, 3)));
 }
@@ -1101,6 +1106,7 @@ async fn main() {
     
             while next_physics_time < get_time() {
                 ctx.flush()
+                    .with(on::PhysicsAccumulateForces)
                     .with(on::PhysicsUpdate { delta_time: physics_delta as f32 });
                 next_physics_time += physics_delta;
             }
