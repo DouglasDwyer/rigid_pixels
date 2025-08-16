@@ -12,7 +12,7 @@ pub fn simple() -> PixelWorld {
 pub fn circle_rotation_jitter() -> PixelWorld {
     let mut world = PixelWorld::default();
     world.insert(create_floor2());
-    world.insert(create_circle(ORANGE, Transform { position: vec2(-20.0, -5.0), rotation: 0.2 }, 9.0));
+    world.insert(create_circle(ORANGE, Transform { position: vec2(-30.0, -2.5), rotation: 0.2 }, 9.0));
     world
 }
 

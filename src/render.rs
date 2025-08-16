@@ -5,18 +5,15 @@ use crate::*;
 pub struct Camera {
     /// The position in the world that should be centered onscreen.
     pub position: Vec2,
-    /// A scale factor to apply before rendering.
+    /// A scale factor that converts from world units to dots.
     pub zoom: f32
 }
 
 impl Camera {
     /// Gets a matrix that converts from world space to screen space (in pixels).
     pub fn screen_world_matrix(&self, resolution: Vec2, pixel_scale: f32) -> Mat3 {
-        /// The default scale for the world.
-        const DOTS_PER_WORLD_UNIT: f32 = 7.0;
-
         Mat3::from_translation(0.5 * resolution)
-            * Mat3::from_scale(vec2(1.0, -1.0) * Vec2::splat(self.zoom * pixel_scale * DOTS_PER_WORLD_UNIT))
+            * Mat3::from_scale(vec2(1.0, -1.0) * Vec2::splat(self.zoom * pixel_scale))
             * Mat3::from_translation(-self.position)
     }
 }
@@ -25,7 +22,7 @@ impl Default for Camera {
     fn default() -> Self {
         Self {
             position: Vec2::ZERO,
-            zoom: 3.0
+            zoom: 21.0
         }
     }
 }
@@ -88,10 +85,24 @@ fn draw_object(screen_world_matrix: &Mat3, object: &PixelObject) {
 
 /// Draws all user interfaces for the simulation.
 fn draw_ui(ctx: &egui::Context, simulation: &mut Simulation) {
-    egui::Window::new("egui ❤ macroquad")
-        .show(ctx, |ui| {
-        ui.label("Test");
-    });
+    update_camera(ctx, simulation);
+}
+
+/// Updates the camera position and zoom based upon the `egui` input.
+fn update_camera(ctx: &egui::Context, simulation: &mut Simulation) {
+    const DRAG_SPEED: f32 = 1.0;
+    const SCROLL_SPEED: f32 = 1.003;
+
+    if !ctx.wants_pointer_input() {
+        ctx.input(|i| {
+            if i.pointer.is_decidedly_dragging() {
+                simulation.camera.position += vec2(-i.pointer.delta().x, i.pointer.delta().y) / simulation.camera.zoom;
+            }
+            
+            simulation.camera.zoom = (simulation.camera.zoom * SCROLL_SPEED.powf(i.smooth_scroll_delta.y))
+                .clamp(0.5, 35.0);
+        });
+    }
 }
 
 /// Draws an arrow between `start` and `end`.

@@ -91,7 +91,7 @@ async fn main() {
         detector: Detector::new(DetectorKind::Naive),
         solver: (),
         step_time: 0.025
-    }, get_time(), scene::simple());
+    }, get_time(), scene::circle_rotation_jitter());
 
     loop {
         simulation.update(get_time());
