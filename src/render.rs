@@ -16,7 +16,7 @@ impl Camera {
         const DOTS_PER_WORLD_UNIT: f32 = 7.0;
 
         Mat3::from_translation(0.5 * resolution)
-            * Mat3::from_scale(Vec2::splat(self.zoom * pixel_scale * DOTS_PER_WORLD_UNIT))
+            * Mat3::from_scale(vec2(1.0, -1.0) * Vec2::splat(self.zoom * pixel_scale * DOTS_PER_WORLD_UNIT))
             * Mat3::from_translation(-self.position)
     }
 }
@@ -25,7 +25,7 @@ impl Default for Camera {
     fn default() -> Self {
         Self {
             position: Vec2::ZERO,
-            zoom: 2.0
+            zoom: 3.0
         }
     }
 }
@@ -42,6 +42,18 @@ pub fn draw_simulation(simulation: &mut Simulation) {
 fn draw_world(simulation: &Simulation) {
     clear_background(Color::new(0.8, 0.2, 0.6, 1.0));
     draw_objects(&simulation.camera, &simulation.world);
+    draw_contacts(&simulation.camera, simulation.physics.detector.contacts());
+}
+
+/// Draws all contacts that were generated this frame.
+fn draw_contacts(camera: &Camera, contacts: &[Contact]) {
+    let screen_world_matrix = camera.screen_world_matrix(vec2(screen_width(), screen_height()), screen_dpi_scale());
+    for contact in contacts {
+        let position = screen_world_matrix.transform_point2(contact.position);
+        let end_position = screen_world_matrix.transform_point2(contact.position + contact.normal);
+        draw_circle(position.x, position.y, 2.0, WHITE);
+        draw_arrow(position, end_position, GREEN);
+    }
 }
 
 /// Draws all objects in the world.
@@ -70,7 +82,7 @@ fn draw_object(screen_world_matrix: &Mat3, object: &PixelObject) {
         draw_affine_parallelogram(with_z0(offset + center_offset), with_z0((1.0 - OUTLINE_SIZE) * horizontal_offset), with_z0((1.0 - OUTLINE_SIZE) * vertical_offset), None, object.color);
     }
 
-    let center_of_mass = (*screen_world_matrix * object.world_model_matrix()).transform_point2(Vec2::ZERO);
+    let center_of_mass = (*screen_world_matrix * object.transform.to_matrix()).transform_point2(Vec2::ZERO);
     draw_hexagon(center_of_mass.x, center_of_mass.y, 4.0, 2.0, false, DARKGRAY, YELLOW);
 }
 
@@ -80,6 +92,33 @@ fn draw_ui(ctx: &egui::Context, simulation: &mut Simulation) {
         .show(ctx, |ui| {
         ui.label("Test");
     });
+}
+
+/// Draws an arrow between `start` and `end`.
+fn draw_arrow(start: Vec2, end: Vec2, color: Color) {
+    // Draw main shaft of the arrow
+    draw_line(start.x, start.y, end.x, end.y, 1.0, color);
+
+    // Calculate direction and angle
+    let direction = end - start;
+    let angle = direction.to_angle();
+
+    // Arrowhead parameters
+    let head_length = 3.0;
+    let head_angle = 0.5;
+
+    let left = vec2(
+        end.x - head_length * (angle - head_angle).cos(),
+        end.y - head_length * (angle - head_angle).sin(),
+    );
+    let right = vec2(
+        end.x - head_length * (angle + head_angle).cos(),
+        end.y - head_length * (angle + head_angle).sin(),
+    );
+
+    // Draw arrowhead
+    draw_line(end.x, end.y, left.x, left.y, 1.0, color);
+    draw_line(end.x, end.y, right.x, right.y, 1.0, color);
 }
 
 /// Adds a `z = 0.0` component to the vector.

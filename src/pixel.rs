@@ -20,6 +20,13 @@ pub struct Transform {
     pub rotation: f32
 }
 
+impl Transform {
+    /// Produces a matrix converting from model space to world space.
+    pub fn to_matrix(&self) -> Mat3 {
+        Mat3::from_scale_angle_translation(Vec2::ONE, self.rotation, self.position)
+    }
+}
+
 /// Describes how quickly an object is moving, and in what direction.
 #[derive(Copy, Clone, Debug, Default)]
 pub struct Velocity {
@@ -67,12 +74,7 @@ impl PixelObject {
 
     /// Gets a matrix that converts from grid space to world space.
     pub fn world_grid_matrix(&self) -> Mat3 {
-        self.world_model_matrix() * Mat3::from_translation(-self.body.local_center_of_mass())
-    }
-
-    /// Gets a matrix that converts from grid space to world space.
-    pub fn world_model_matrix(&self) -> Mat3 {
-        Mat3::from_scale_angle_translation(Vec2::ONE, self.transform.rotation, self.transform.position)
+        self.body.world_grid_matrix(self.transform)
     }
 }
 
@@ -113,10 +115,20 @@ impl PixelBody {
 
         result
     }
+    
+    /// Gets a list of all corner voxels in the body.
+    pub fn corners(&self) -> &[UVec2] {
+        &self.corners
+    }
 
     /// The grid of pixels associated with the body.
     pub fn grid(&self) -> &PixelGrid {
         &self.grid
+    }
+
+    /// Gets a matrix that converts from grid space to world space.
+    pub fn world_grid_matrix(&self, transform: Transform) -> Mat3 {
+        transform.to_matrix() * Mat3::from_translation(-self.local_center_of_mass())
     }
 
     /// Gets the center of mass in grid space.
@@ -126,7 +138,7 @@ impl PixelBody {
 
     /// Which adjacent pixels are set?
     pub fn neighbors(&self, position: UVec2) -> PixelNeighbors {
-        self.neighbors[(position.x + position.y * self.grid.size().x) as usize]
+        self.neighbors[(position.x + position.y * self.grid.resolution().x) as usize]
     }
 
     /// Recalculates all acceleration structure data for this body.
@@ -136,8 +148,8 @@ impl PixelBody {
 
         let mut min_val = UVec2::splat(u32::MAX);
         let mut max_val = UVec2::ZERO;
-        for y in 0..self.grid.size().y {
-            for x in 0..self.grid.size().x {
+        for y in 0..self.grid.resolution().y {
+            for x in 0..self.grid.resolution().x {
                 let neighbors = Self::calculate_neighbors(&self.grid, uvec2(x, y));
                 let classification = neighbors.kind();
 
@@ -333,7 +345,7 @@ impl PixelGrid {
     }
 
     /// The width and length of the grid.
-    pub fn size(&self) -> UVec2 {
+    pub fn resolution(&self) -> UVec2 {
         self.resolution
     }
 
