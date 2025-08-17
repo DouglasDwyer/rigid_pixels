@@ -1,38 +1,31 @@
-use crate::*;
+use std::collections::HashMap;
 
-/// Determines how PGS will behave.
-#[derive(Copy, Clone, Debug)]
-pub struct PgsConfig {
-    /// The Baumgarte factor to apply.
-    pub baumgarte: f32,
-    /// The number of solver iterations to perform.
-    pub iterations: u32
-}
+use crate::*;
 
 #[derive(Debug)]
 pub struct Pgs {
     /// The configuration to use.
-    config: PgsConfig
+    config: SolverConfig,
+    /// A cache containing forces to use 
+    force_cache: HashMap<ConstraintId, f32>
 }
 
 impl Pgs {
     /// Creates a new PGS instance with the specified settings.
-    pub fn new(config: PgsConfig) -> Self {
+    pub fn new(config: SolverConfig) -> Self {
+        let force_cache = HashMap::new();
+
         Self {
-            config
+            config,
+            force_cache
         }
     }
     
     /// Solves the system of constraints and updates the velocities of bodies in the world.
-    pub fn solve(&self, constraints: &[Constraint], world: &mut PixelWorld, delta_time: f32) {
-        for object in world.values_mut() {
-            object.velocity += delta_time * Motion {
-                linear: object.body.inverse_mass() * object.forces.force,
-                angular: object.body.inverse_inertia_tensor() * object.forces.torque
-            };
-        }
+    pub fn solve(&mut self, constraints: &[Constraint], world: &mut PixelWorld, delta_time: f32) {
+        integrate_external_forces(world, delta_time);
 
-        let mut lambdas = vec![0.0; constraints.len()];
+        let mut lambdas = self.calculate_initial_lambdas(constraints);
 
         let eta = self.calculate_eta(constraints, world, delta_time);
         let b = self.calculate_b(constraints, world);
@@ -51,6 +44,13 @@ impl Pgs {
             }
         }
 
+        self.cache_constraint_forces(constraints, &lambdas);
+        self.apply_constraint_forces(constraints, &lambdas, world, delta_time);
+        integrate_velocities(world, delta_time);
+    }
+
+    /// Integrates constraint forces into the velocities of all objects.
+    fn apply_constraint_forces(&mut self, constraints: &[Constraint], lambdas: &[f32], world: &mut PixelWorld, delta_time: f32) {
         for (constraint, lambda) in constraints.into_iter().zip(lambdas.iter().copied()) {
             for ((object_id, motion), j) in constraint.objects.into_iter().zip(*constraint.j).zip(*constraint.j) {
                 let object = &mut world[object_id];
@@ -59,6 +59,16 @@ impl Pgs {
                     linear: object.body.inverse_mass() * constraint_force.linear,
                     angular: object.body.inverse_inertia_tensor() * constraint_force.angular
                 };
+            }
+        }
+    }
+
+    /// Stores this frame's constraint forces for warm-starting next frame.
+    fn cache_constraint_forces(&mut self, constraints: &[Constraint], lambdas: &[f32]) {
+        if self.config.warm_starting {
+            self.force_cache.clear();
+            for (constraint, lambda) in constraints.into_iter().zip(lambdas.iter().copied()) {
+                self.force_cache.insert(constraint.id, lambda);
             }
         }
     }
@@ -111,5 +121,16 @@ impl Pgs {
             result.push((zeta_term + j_term) / delta_time);
         }
         result
-    } 
+    }
+
+    /// Computes an initial guess for each constraint value.
+    fn calculate_initial_lambdas(&self, constraints: &[Constraint]) -> Vec<f32> {
+        if self.config.warm_starting {
+            constraints.iter().map(|x| self.force_cache.get(&x.id).copied().unwrap_or_default())
+                .collect()
+        }
+        else {
+            vec![0.0; constraints.len()]
+        }
+    }
 }

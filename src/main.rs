@@ -84,13 +84,13 @@ impl Simulation {
     fn test_force_generator(&mut self) {
         for object in self.world.values_mut() {
             if 0.0 < object.body.inverse_mass() {
-                object.forces.force += -G * Vec2::Y / object.body.inverse_inertia_tensor();
+                object.forces.force += -G * Vec2::Y / object.body.inverse_mass();
             }
         }
     }
 }
 
-const G: f32 = 8.0;
+const G: f32 = 9.81 * 16.0;
 
 /// Holds the algorithms and data for running the physics engine.
 #[derive(Debug)]
@@ -129,6 +129,7 @@ impl Contact {
     pub fn to_constraints(&self) -> [Constraint; 1] {
         [Constraint {
             objects: self.objects,
+            id: ConstraintId { objects: self.objects, pixel_position: self.pixel_position },
             c: self.separation,
             j: MotionPair([
                 Motion { linear: -self.normal, angular: -self.relative_position[0].perp_dot(self.normal) },
@@ -139,11 +140,22 @@ impl Contact {
     }
 }
 
+/// Allows for uniquely identifying a constraint across frames.
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+pub struct ConstraintId {
+    /// The objects involved in the collision.
+    pub objects: [ObjectId; 2],
+    /// The position of each pixel involved in the collision. 
+    pub pixel_position: [UVec2; 2]
+}
+
 /// A single force, generated from a constraint function `C`, that limits objects' motion.
 #[derive(Clone, Debug)]
 pub struct Constraint {
     /// The objects affected by the constraint.
     pub objects: [ObjectId; 2],
+    /// Uniquely identifies this constraint.
+    pub id: ConstraintId,
     /// The value of the constraint function `C`.
     pub c: f32,
     /// The Jacobian associated with this constraint.
@@ -157,9 +169,10 @@ pub struct Constraint {
 async fn main() {
     let mut simulation = Simulation::new(PhysicsEngine {
         detector: Detector::new(DetectorKind::Naive),
-        solver: Solver::Pgs(Pgs::new(PgsConfig {
+        solver: Solver::Pgs(Pgs::new(SolverConfig {
             baumgarte: 0.05,
-            iterations: 8
+            iterations: 8,
+            warm_starting: true
         })),
         delta_time: 0.015
     }, get_time(), scene::box_pyramid());
