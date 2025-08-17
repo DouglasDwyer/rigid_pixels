@@ -175,7 +175,7 @@ async fn main() {
             warm_starting: true
         })),
         delta_time: 0.015
-    }, get_time(), scene::circle_rotation_jitter());
+    }, get_time(), scene::box_pyramid());
 
     loop {
         simulation.update(get_time());
