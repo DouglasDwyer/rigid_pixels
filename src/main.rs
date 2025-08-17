@@ -108,6 +108,8 @@ pub struct PhysicsEngine {
 pub struct Contact {
     /// The objects involved in the collision.
     pub objects: [ObjectId; 2],
+    /// The position of each pixel involved in the collision. 
+    pub pixel_position: [UVec2; 2],
     /// The offset from each object's origin to [`Self::po`]
     pub relative_position: [Vec2; 2],
     /// The coefficient of friction at the contact.
@@ -156,11 +158,11 @@ async fn main() {
     let mut simulation = Simulation::new(PhysicsEngine {
         detector: Detector::new(DetectorKind::Naive),
         solver: Solver::Pgs(Pgs::new(PgsConfig {
-            baumgarte: 0.1,
+            baumgarte: 0.05,
             iterations: 8
         })),
         delta_time: 0.015
-    }, get_time(), scene::circle_rotation_jitter());
+    }, get_time(), scene::box_pyramid());
 
     loop {
         simulation.update(get_time());

@@ -21,6 +21,16 @@ pub fn simple() -> PixelWorld {
     world
 }
 
+/// A world where several boxes (each smaller in size) are stacked atop one another
+pub fn box_pyramid() -> PixelWorld {
+    let mut world = PixelWorld::default();
+    world.insert(create_floor1());
+    world.insert(create_box(GOLD, Transform { position: vec2(8.25, 5.25), rotation: 0.0 }, uvec2(12, 5)));
+    world.insert(create_box(GOLD, Transform { position: vec2(8.5, 9.5), rotation: 0.01 }, uvec2(8, 3)));
+    world.insert(create_box(GOLD, Transform { position: vec2(9.0, 12.5), rotation: 0.01 }, uvec2(5, 2)));
+    world
+}
+
 /// A world where the corners of stacked boxes exhibit some strange artifacts from the contact normals.
 pub fn weird_normals() -> PixelWorld {
     let mut world = PixelWorld::default();

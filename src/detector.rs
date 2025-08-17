@@ -83,14 +83,35 @@ impl Detector {
         let b_to_a = a_to_world_space.inverse() * b.body.world_grid_matrix(b.transform);
 
         for corner in b.body.corners().iter().copied() {
+            let mut closest_edge_sq = None;
+            let start_i = contacts.len();
+
             let b_pixel_position = b_to_a.transform_point2(corner.as_vec2() + Vec2::splat(0.5));
             let min_pixel = (b_pixel_position - Vec2::splat(0.5)).floor().as_ivec2().as_uvec2();
             for offset in [UVec2::ZERO, UVec2::X, UVec2::Y, UVec2::ONE] {
                 let position = min_pixel + offset;
                 if a.body.grid().get_or_empty(position) {
                     let delta = b_pixel_position - (position.as_vec2() + Vec2::splat(0.5));
-
                     let neighbors = a.body.neighbors(position);
+
+                    if neighbors.is_all() {
+                        continue;
+                    }
+                    let is_edge = neighbors.kind() != PixelKind::Corner;
+                    if is_edge {
+                        let delta_len_sq = delta.length_squared();
+                        if closest_edge_sq.is_none_or(|x| delta_len_sq < x) {
+                            contacts.truncate(start_i);
+                            closest_edge_sq = Some(delta_len_sq);
+                        }
+                        else {
+                            continue;
+                        }
+                    }
+                    else if closest_edge_sq.is_some() {
+                        continue;
+                    }
+
                     let lower = BVec2::new(neighbors.contains(PixelNeighbors::LEFT), neighbors.contains(PixelNeighbors::DOWN));
                     let upper = BVec2::new(neighbors.contains(PixelNeighbors::RIGHT), neighbors.contains(PixelNeighbors::UP));
                     let clamped_lower = Vec2::select(lower, delta.max(Vec2::ZERO), delta);
@@ -103,6 +124,7 @@ impl Detector {
 
                     contacts.push(Contact {
                         objects: [a.id, b.id],
+                        pixel_position: [position, corner],
                         relative_position: [world_point - a.transform.position, world_point - b.transform.position],
                         friction: 0.0,
                         restitution: 0.0,
