@@ -1,10 +1,27 @@
 use crate::*;
 
+/*
+TODO:
+- Research normals issue
+- Add ability to drag blocks around
+- Make PGS sequential impulse solver instead, see if that feels better
+*/
+
 /// A simple world with two boxes for testing collision detection.
 pub fn simple() -> PixelWorld {
     let mut world = PixelWorld::default();
-    world.insert(create_box(ORANGE, Transform { position: vec2(-20.0, -5.0), rotation: 0.0 }, UVec2::splat(2)));
-    world.insert(create_box(GOLD, Transform { position: vec2(-18.5, -3.5), rotation: 0.0 }, UVec2::splat(2)));
+    world.insert(create_floor1());
+    world.insert(create_box(GOLD, Transform { position: vec2(8.25, 5.25), rotation: 0.0 }, uvec2(12, 5)));
+    world.insert(create_box(GOLD, Transform { position: vec2(10.0, 9.5), rotation: 0.01 }, uvec2(7, 3)));
+    world
+}
+
+/// A world where the corners of stacked boxes exhibit some strange artifacts from the contact normals.
+pub fn weird_normals() -> PixelWorld {
+    let mut world = PixelWorld::default();
+    world.insert(create_floor1());
+    world.insert(create_box(GOLD, Transform { position: vec2(8.25, 5.25), rotation: 0.0 }, uvec2(12, 5)));
+    world.insert(create_box(GOLD, Transform { position: vec2(10.0, 9.5), rotation: 0.01 }, uvec2(7, 3)));
     world
 }
 
@@ -44,6 +61,23 @@ fn create_circle(color: Color, transform: Transform, radius: f32) -> PixelObject
     let body = PixelBody::new(grid, false);
 
     PixelObject::new(body, color, transform)
+}
+
+/// Creates a flat floor object for testing.
+fn create_floor1() -> PixelObject {
+    const FLOOR_LENGTH: u32 = 512;
+
+    let mut grid = PixelGrid::new(uvec2(FLOOR_LENGTH, 25));
+    for x in 0..FLOOR_LENGTH {
+        grid.set(uvec2(x, 0), true);
+        grid.set(uvec2(x, 1), true);
+        grid.set(uvec2(x, 2), true);
+    }
+
+    let transform = Transform { position: -0.5 * grid.resolution().x as f32 * Vec2::X, rotation: 0.0 };
+    let mut body = PixelBody::new(grid, true);
+
+    PixelObject::new(body, DARKGRAY, transform)
 }
 
 /// Creates a floor object for testing.

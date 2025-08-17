@@ -50,11 +50,9 @@ impl Detector {
 
     /// Detects all present contact points between objects in `world`. Does not account for fast-moving objects.
     fn update_naive(world: &PixelWorld, contacts: &mut Vec<Contact>) {
-        for a_index in 0..world.capacity() as u64 {
-            let id_a = ObjectId::from(KeyData::from_ffi(a_index));
-            if let Some(object_a) = world.get(id_a) {
-                for b_index in (a_index + 1)..world.capacity() as u64 {
-                    let id_b = ObjectId::from(KeyData::from_ffi(b_index));
+        for (id_a, object_a) in world {
+            for (id_b, object_b) in world {
+                if id_a < id_b {
                     if let Some(object_b) = world.get(id_b) {
                         Self::gather_contacts(DetectorObject {
                             body: &object_a.body,
@@ -99,16 +97,17 @@ impl Detector {
                     let normal = Vec2::select(upper, clamped_lower.min(Vec2::ZERO), clamped_lower).normalize();
 
                     let contact_point = b_pixel_position - 0.5 * delta;
-                    let penetration = ((normal.signum() - delta) / normal).min_element();
+                    let separation = -((normal.signum() - delta) / normal).min_element();
 
                     let world_point = a_to_world_space.transform_point2(contact_point);
 
                     contacts.push(Contact {
                         objects: [a.id, b.id],
+                        relative_position: [world_point - a.transform.position, world_point - b.transform.position],
                         friction: 0.0,
                         restitution: 0.0,
-                        penetration,
-                        normal: -a_to_world_space.transform_vector2(normal),
+                        separation,
+                        normal: a_to_world_space.transform_vector2(normal),
                         position: world_point
                     });
                 }

@@ -1,7 +1,9 @@
 use bitflags::*;
 use bitvec::prelude::*;
+use crate::*;
 use macroquad::prelude::*;
 use slotmap::*;
+use std::ops::*;
 
 new_key_type! {
     /// Uniquely identifies an object in a [`PixelWorld`].
@@ -11,31 +13,6 @@ new_key_type! {
 /// Stores a collection of objects in a world.
 pub type PixelWorld = SlotMap<ObjectId, PixelObject>;
 
-/// Describes the current location and orientation of an object.
-#[derive(Copy, Clone, Debug, Default)]
-pub struct Transform {
-    /// The position of the object's center of mass.
-    pub position: Vec2,
-    /// The rotation from the origin.
-    pub rotation: f32
-}
-
-impl Transform {
-    /// Produces a matrix converting from model space to world space.
-    pub fn to_matrix(&self) -> Mat3 {
-        Mat3::from_scale_angle_translation(Vec2::ONE, self.rotation, self.position)
-    }
-}
-
-/// Describes how quickly an object is moving, and in what direction.
-#[derive(Copy, Clone, Debug, Default)]
-pub struct Velocity {
-    /// The linear velocity in units per second.
-    pub linear: Vec2,
-    /// The rotational velocity in radians per second.
-    pub angular: f32
-}
-
 /// Efficiently gathers all external forces over the course of a frame.
 #[derive(Copy, Clone, Debug, Default)]
 pub struct ForceAccumulator {
@@ -43,6 +20,13 @@ pub struct ForceAccumulator {
     pub force: Vec2,
     /// The total amount of torque added (with respect to the center of mass).
     pub torque: f32
+}
+
+impl ForceAccumulator {
+    /// Gets this accumulator as a generic [`Motion`].
+    pub fn as_motion(self) -> Motion {
+        Motion { linear: self.force, angular: self.torque }
+    }
 }
 
 /// An object in the game world.
@@ -57,7 +41,7 @@ pub struct PixelObject {
     /// The location of the object.
     pub transform: Transform,
     /// The motion of the object.
-    pub velocity: Velocity
+    pub velocity: Motion
 }
 
 impl PixelObject {
@@ -68,8 +52,14 @@ impl PixelObject {
             color,
             forces: ForceAccumulator::default(),
             transform,
-            velocity: Velocity::default()
+            velocity: Motion::default()
         }
+    }
+
+    /// Adds a force in world space to the body.
+    pub fn add_force(&mut self, point: Vec2, force: Vec2) {
+        self.forces.force += force;
+        self.forces.torque += (point - self.transform.position).perp_dot(force);
     }
 
     /// Gets a matrix that converts from grid space to world space.
@@ -124,6 +114,16 @@ impl PixelBody {
     /// The grid of pixels associated with the body.
     pub fn grid(&self) -> &PixelGrid {
         &self.grid
+    }
+
+    /// Gets the inverse mass of the object.
+    pub fn inverse_mass(&self) -> f32 {
+        self.inverse_mass
+    }
+
+    /// The inverse of the moment of inertia.
+    pub fn inverse_inertia_tensor(&self) -> f32 {
+        self.inverse_inertia_tensor
     }
 
     /// Gets a matrix that converts from grid space to world space.
