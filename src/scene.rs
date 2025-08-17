@@ -2,9 +2,14 @@ use crate::*;
 
 /*
 TODO:
+- Fix everything going to NaN-land
 - Research normals issue
-- Add ability to drag blocks around
 - Make PGS sequential impulse solver instead, see if that feels better
+- Consider trying to clean up matrix code to make it better match paper
+- Friction support
+- Bounce support
+- See about joints
+- Try other solvers
 */
 
 /// A simple world with two boxes for testing collision detection.
