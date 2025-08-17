@@ -115,8 +115,13 @@ impl Detector {
                     let lower = BVec2::new(neighbors.contains(PixelNeighbors::LEFT), neighbors.contains(PixelNeighbors::DOWN));
                     let upper = BVec2::new(neighbors.contains(PixelNeighbors::RIGHT), neighbors.contains(PixelNeighbors::UP));
                     let clamped_lower = Vec2::select(lower, delta.max(Vec2::ZERO), delta);
-                    let normal = Vec2::select(upper, clamped_lower.min(Vec2::ZERO), clamped_lower).normalize();
+                    let clamped_upper = Vec2::select(upper, clamped_lower.min(Vec2::ZERO), clamped_lower);
+                    let normal = clamped_upper.normalize_or_zero();
 
+                    if normal == Vec2::ZERO {
+                        continue;
+                    }
+                    
                     let contact_point = b_pixel_position - 0.5 * delta;
                     let separation = -((normal.signum() - delta) / normal).min_element();
 

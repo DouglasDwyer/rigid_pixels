@@ -175,10 +175,21 @@ async fn main() {
             warm_starting: true
         })),
         delta_time: 0.015
-    }, get_time(), scene::box_pyramid());
+    }, get_time(), scene::circle_rotation_jitter());
 
     loop {
         simulation.update(get_time());
         next_frame().await;
     }
 }
+
+/*
+
+Positive notes:
+- A big circle lying on the ground jitters less with warm starting
+
+Things to think about:
+- Corner normal handling is weird. How does Teardown do it?
+- There were NaNs in collision detection when voxels clipped through the opposite side of an edge. How did the 3D engine handle this?
+
+*/
