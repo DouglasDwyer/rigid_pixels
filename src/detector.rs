@@ -9,8 +9,8 @@ pub enum DetectorKind {
     Naive,
     /// Split *detection only* into multiple substeps based upon the unaffected motion of the objects.
     Speculative {
-        /// Whether to include the effect of external forces in the stepped objects' trajectories.
-        integrate_external_forces: bool,
+        // Whether to include the effect of external forces in the stepped objects' trajectories.
+        //integrate_external_forces: bool,
         /// How to step.
         mode: SpeculativeStepMode,
     }
@@ -50,24 +50,46 @@ impl Detector {
 
     /// Detects all present contact points between objects in `world`. Does not account for fast-moving objects.
     fn update_naive(world: &PixelWorld, contacts: &mut Vec<Contact>) {
-        for (id_a, object_a) in world {
-            for (id_b, object_b) in world {
-                if id_a < id_b {
-                    if let Some(object_b) = world.get(id_b) {
-                        Self::gather_contacts(DetectorObject {
-                            body: &object_a.body,
-                            id: id_a,
-                            transform: object_a.transform
-                        },
-                        DetectorObject {
-                            body: &object_b.body,
-                            id: id_b,
-                            transform: object_b.transform
-                        }, contacts);
-                    }
-                }
-            }
+        for ((id_a, object_a), (id_b, object_b)) in Self::iter_object_pairs(world) {
+            Self::gather_contacts(DetectorObject {
+                body: &object_a.body,
+                id: id_a,
+                transform: object_a.transform
+            },
+            DetectorObject {
+                body: &object_b.body,
+                id: id_b,
+                transform: object_b.transform
+            }, contacts);
         }
+    }
+
+    /// Detects contact points between objects. Uses substepping for fast pairs of objects to prevent interpenetration.
+    fn update_speculative(mode: SpeculativeStepMode, world: &PixelWorld, delta_time: f32, contacts: &mut Vec<Contact>) {
+        for ((id_a, object_a), (id_b, object_b)) in Self::iter_object_pairs(world) {
+            let max_speed = Self::relative_speed_bound(object_a, object_b);
+            for t_substep in mode.substep_times(max_speed, delta_time) {
+
+            }
+            Self::gather_contacts(DetectorObject {
+                body: &object_a.body,
+                id: id_a,
+                transform: object_a.transform
+            },
+            DetectorObject {
+                body: &object_b.body,
+                id: id_b,
+                transform: object_b.transform
+            }, contacts);
+        }
+    }
+
+    /// Computes an upper bound on the relative speed between any two points on `a` and `b`.
+    fn relative_speed_bound(a: &PixelObject, b: &PixelObject) -> f32 {
+        let relative_linear_speed = (a.velocity.linear - b.velocity.linear).length();
+        let a_max_angular_speed = a.body.radius() * a.velocity.angular.abs();
+        let b_max_angular_speed = b.body.radius() * b.velocity.angular.abs();
+        relative_linear_speed + a_max_angular_speed + b_max_angular_speed
     }
 
     /// Gathers all contacts between `a` and `b`.
@@ -141,6 +163,13 @@ impl Detector {
             }
         }
     }
+
+    /// Iterates over all object pairs in `world`. Each pair is only returned once,
+    /// with lower [`ObjectId`]s coming first.
+    fn iter_object_pairs<'a>(world: &'a PixelWorld) -> impl IntoIterator<Item = ((ObjectId, &'a PixelObject), (ObjectId, &'a PixelObject))> {
+        world.iter().flat_map(|a| world.iter().map(move |b| (a, b)))
+            .filter(|((id_a, _), (id_b, _))| *id_a < *id_b)
+    }
 }
 
 /// How to place the speculative steps.
@@ -154,25 +183,24 @@ pub enum SpeculativeStepMode {
     Ceil
 }
 
-/*
 impl SpeculativeStepMode {
     /// For objects moving with relative `max_speed` over a total interval of `t_step`,
     /// determines the times at which substeps should occur.
-    pub fn substep_times(&self, max_speed: f32, t_step: f32) -> Vec<f32> {
+    pub fn substep_times(&self, max_speed: f32, delta_time: f32) -> Vec<f32> {
         /// The theoretical distance an object may move before tunneling occurs.
         const TUNNEL_THRESHOLD_DISTANCE: f32 = 0.5;
 
         let t_max = TUNNEL_THRESHOLD_DISTANCE / max_speed;
-        let required_steps = ((t_step / t_max).ceil() as u32).max(1);
-        let end_distance = (t_step - required_steps as f32 * t_max).max(0.0);
+        let required_steps = ((delta_time / t_max).ceil() as u32).max(1);
+        let end_distance = (delta_time - required_steps as f32 * t_max).max(0.0);
 
         match self {
-            SpeculativeStepMode::Floor => (0..required_steps).map(|i| (i as f32) * t_max),
+            SpeculativeStepMode::Floor => (0..required_steps).map(|i| (i as f32) * t_max).collect(),
             SpeculativeStepMode::Equidistant => todo!(),
-            SpeculativeStepMode::Ceil => (0..required_steps).map(|i| (i as f32) * t_max + end_distance),
+            SpeculativeStepMode::Ceil => (0..required_steps).map(|i| (i as f32) * t_max + end_distance).collect(),
         }
     }
-} */
+}
 
 /// An object being processed by the [`Detector`].
 #[derive(Copy, Clone, Debug)]

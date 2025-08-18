@@ -136,6 +136,11 @@ impl PixelBody {
         self.local_center_of_mass
     }
 
+    /// Gets a Euclidean radius bounding the object.
+    pub fn radius(&self) -> f32 {
+        self.radius
+    }
+
     /// Which adjacent pixels are set?
     pub fn neighbors(&self, position: UVec2) -> PixelNeighbors {
         self.neighbors[(position.x + position.y * self.grid.resolution().x) as usize]
