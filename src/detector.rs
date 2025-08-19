@@ -9,8 +9,6 @@ pub enum DetectorKind {
     Naive,
     /// Split *detection only* into multiple substeps based upon the unaffected motion of the objects.
     Speculative {
-        // Whether to include the effect of external forces in the stepped objects' trajectories.
-        //integrate_external_forces: bool,
         /// How to step.
         mode: SpeculativeStepMode,
     }
@@ -40,11 +38,11 @@ impl Detector {
     }
 
     /// Generates contact points between objects in `world` to prevent interpenetration.
-    pub fn update(&mut self, world: &PixelWorld) {
+    pub fn update(&mut self, world: &PixelWorld, delta_time: f32) {
         self.contacts.clear();
         match self.kind {
             DetectorKind::Naive => Self::update_naive(world, &mut self.contacts),
-            DetectorKind::Speculative { .. } => todo!(),
+            DetectorKind::Speculative { mode } => Self::update_speculative(mode, world, delta_time, &mut self.contacts),
         }
     }
 
@@ -69,18 +67,31 @@ impl Detector {
         for ((id_a, object_a), (id_b, object_b)) in Self::iter_object_pairs(world) {
             let max_speed = Self::relative_speed_bound(object_a, object_b);
             for t_substep in mode.substep_times(max_speed, delta_time) {
+                let a_transform_new = integrate_velocity(object_a.transform, object_a.velocity, t_substep);
+                let b_transform_new = integrate_velocity(object_b.transform, object_b.velocity, t_substep);
 
+                let start_i = contacts.len();
+                Self::gather_contacts(DetectorObject {
+                    body: &object_a.body,
+                    id: id_a,
+                    transform: a_transform_new
+                },
+                DetectorObject {
+                    body: &object_b.body,
+                    id: id_b,
+                    transform: b_transform_new
+                }, contacts);
+
+                let a_transform_relative = Transform { position: object_a.transform.position, rotation: object_a.transform.rotation - a_transform_new.rotation }
+                    .to_matrix();
+                let b_transform_relative = Transform { position: object_b.transform.position, rotation: object_b.transform.rotation - b_transform_new.rotation }
+                    .to_matrix();
+
+                for contact in &mut contacts[start_i..] {
+                    contact.separation += contact.normal.dot(b_transform_relative.transform_point2(contact.relative_position[1])
+                        - a_transform_relative.transform_point2(contact.relative_position[0]));
+                }
             }
-            Self::gather_contacts(DetectorObject {
-                body: &object_a.body,
-                id: id_a,
-                transform: object_a.transform
-            },
-            DetectorObject {
-                body: &object_b.body,
-                id: id_b,
-                transform: object_b.transform
-            }, contacts);
         }
     }
 
@@ -94,9 +105,14 @@ impl Detector {
 
     /// Gathers all contacts between `a` and `b`.
     fn gather_contacts(a: DetectorObject, b: DetectorObject, contacts: &mut Vec<Contact>) {
-        // Todo: don't duplicate corner-corner collisions?
         Self::gather_corner_contacts(a, b, contacts);
+
+        let start_i = contacts.len();
         Self::gather_corner_contacts(b, a, contacts);
+
+        for contact in &mut contacts[start_i..] {
+            *contact = contact.swap_objects();
+        }
     }
 
     /// Gathers all contact constraints produced by corners of object `a` colliding with `b`.

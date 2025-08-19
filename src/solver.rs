@@ -46,10 +46,16 @@ pub fn integrate_external_forces(world: &mut PixelWorld, delta_time: f32) {
     }
 }
 
+/// Integrates `velocity` over `delta_time` into `transform`.
+pub fn integrate_velocity(mut transform: Transform, velocity: Motion, delta_time: f32) -> Transform {
+    transform.position += delta_time * velocity.linear;
+    transform.rotation += delta_time * velocity.angular;
+    transform
+}
+
 /// Integrates the velocities of all objects in the world, updating their positions.
 pub fn integrate_velocities(world: &mut PixelWorld, delta_time: f32) {
     for object in world.values_mut() {
-        object.transform.position += delta_time * object.velocity.linear;
-        object.transform.rotation += delta_time * object.velocity.angular;
+        object.transform = integrate_velocity(object.transform, object.velocity, delta_time);
     }
 }

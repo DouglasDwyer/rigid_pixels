@@ -68,8 +68,21 @@ impl Renderer {
 
     /// Draws all user interfaces for the simulation.
     fn draw_ui(&mut self, ctx: &egui::Context, world: &mut PixelWorld) {
+        self.draw_info_panel(ctx, world);
         self.update_dragged_object(ctx, world);
         self.update_camera(ctx);
+    }
+
+    /// Draws an info UI panel on the right side of the screen.
+    fn draw_info_panel(&mut self, ctx: &egui::Context, world: &mut PixelWorld) {
+        egui::SidePanel::right("Info panel")
+            .min_width(500.0)
+            .show(ctx, |ui| {
+            for (id, body) in world {
+                ui.label(format!("{id:?}"));
+                ui.label(format!("Velocity: {:?}", body.velocity));
+            }
+        });
     }
 
     /// Updates the camera position and zoom based upon the `egui` input.

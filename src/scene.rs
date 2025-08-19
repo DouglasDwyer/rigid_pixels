@@ -2,7 +2,7 @@ use crate::*;
 
 /*
 TODO:
-- Fix everything going to NaN-land
+- Speculative contacts
 - Research normals issue
 - Make PGS sequential impulse solver instead, see if that feels better
 - Consider trying to clean up matrix code to make it better match paper
@@ -17,7 +17,15 @@ pub fn simple() -> PixelWorld {
     let mut world = PixelWorld::default();
     world.insert(create_floor1());
     world.insert(create_box(GOLD, Transform { position: vec2(8.25, 5.25), rotation: 0.0 }, uvec2(12, 5)));
-    world.insert(create_box(GOLD, Transform { position: vec2(10.0, 9.5), rotation: 0.01 }, uvec2(7, 3)));
+    world.insert(create_box(GOLD, Transform { position: vec2(10.0, 9.5), rotation: 0.0 }, uvec2(7, 3)));
+    world
+}
+
+/// A world with a plane and a single box.
+pub fn single_box() -> PixelWorld {
+    let mut world = PixelWorld::default();
+    world.insert(create_floor1());
+    world.insert(create_box(GOLD, Transform { position: vec2(9.0, 12.5), rotation: 0.0 }, uvec2(5, 2)));
     world
 }
 
@@ -26,8 +34,8 @@ pub fn box_pyramid() -> PixelWorld {
     let mut world = PixelWorld::default();
     world.insert(create_floor1());
     world.insert(create_box(GOLD, Transform { position: vec2(8.25, 5.25), rotation: 0.0 }, uvec2(12, 5)));
-    world.insert(create_box(GOLD, Transform { position: vec2(8.5, 9.5), rotation: 0.01 }, uvec2(8, 3)));
-    world.insert(create_box(GOLD, Transform { position: vec2(9.0, 12.5), rotation: 0.01 }, uvec2(5, 2)));
+    world.insert(create_box(GOLD, Transform { position: vec2(8.5, 9.5), rotation: 0.0 }, uvec2(8, 3)));
+    world.insert(create_box(GOLD, Transform { position: vec2(9.0, 12.5), rotation: 0.0 }, uvec2(5, 2)));
     world
 }
 
@@ -36,7 +44,7 @@ pub fn weird_normals() -> PixelWorld {
     let mut world = PixelWorld::default();
     world.insert(create_floor1());
     world.insert(create_box(GOLD, Transform { position: vec2(8.25, 5.25), rotation: 0.0 }, uvec2(12, 5)));
-    world.insert(create_box(GOLD, Transform { position: vec2(10.0, 9.5), rotation: 0.01 }, uvec2(7, 3)));
+    world.insert(create_box(GOLD, Transform { position: vec2(10.0, 9.5), rotation: 0.0 }, uvec2(7, 3)));
     world
 }
 
@@ -87,6 +95,9 @@ fn create_floor1() -> PixelObject {
         grid.set(uvec2(x, 0), true);
         grid.set(uvec2(x, 1), true);
         grid.set(uvec2(x, 2), true);
+        grid.set(uvec2(x, 3), true);
+        grid.set(uvec2(x, 4), true);
+        grid.set(uvec2(x, 5), true);
     }
 
     let transform = Transform { position: -0.5 * grid.resolution().x as f32 * Vec2::X, rotation: 0.0 };

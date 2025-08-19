@@ -64,7 +64,7 @@ impl Simulation {
         self.test_force_generator();
         
         while self.last_update < time {
-            self.physics.detector.update(&self.world);
+            self.physics.detector.update(&self.world, self.physics.delta_time);
             self.physics.solver.update(self.physics.detector.contacts(), &mut self.world, self.physics.delta_time);
             self.last_update += self.physics.delta_time as f64;
         }
@@ -110,7 +110,7 @@ pub struct Contact {
     pub objects: [ObjectId; 2],
     /// The position of each pixel involved in the collision. 
     pub pixel_position: [UVec2; 2],
-    /// The offset from each object's origin to [`Self::po`]
+    /// The offset from each object's origin to [`Self::position`].
     pub relative_position: [Vec2; 2],
     /// The coefficient of friction at the contact.
     pub friction: f32,
@@ -125,6 +125,17 @@ pub struct Contact {
 }
 
 impl Contact {
+    /// Swaps the order of the objects involved in the collision.
+    pub fn swap_objects(&self) -> Self {
+        Self {
+            objects: [self.objects[1], self.objects[0]],
+            pixel_position: [self.pixel_position[1], self.pixel_position[0]],
+            relative_position: [self.relative_position[1], self.relative_position[0]],
+            normal: -self.normal,
+            ..*self
+        }
+    }
+
     /// Creates constraints to represent this contact.
     pub fn to_constraints(&self) -> [Constraint; 1] {
         [Constraint {
@@ -168,14 +179,14 @@ pub struct Constraint {
 #[macroquad::main("Rigid pixels")]
 async fn main() {
     let mut simulation = Simulation::new(PhysicsEngine {
-        detector: Detector::new(DetectorKind::Naive),
+        detector: Detector::new(DetectorKind::Speculative { mode: SpeculativeStepMode::Floor }),
         solver: Solver::Pgs(Pgs::new(SolverConfig {
             baumgarte: 0.05,
             iterations: 8,
             warm_starting: true
         })),
         delta_time: 0.015
-    }, get_time(), scene::box_pyramid());
+    }, get_time(), scene::single_box());
 
     loop {
         simulation.update(get_time());

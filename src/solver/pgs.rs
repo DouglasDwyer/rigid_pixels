@@ -116,7 +116,7 @@ impl Pgs {
     fn calculate_eta(&self, constraints: &[Constraint], world: &PixelWorld, delta_time: f32) -> Vec<f32> {
         let mut result = Vec::with_capacity(constraints.len());
         for constraint in constraints {
-            let zeta_term = -self.config.baumgarte * constraint.c / delta_time;
+            let zeta_term = if constraint.c < 0.0 { -self.config.baumgarte * constraint.c / delta_time } else { -constraint.c / delta_time };
             let j_term = -constraint.j.dot(MotionPair([world[constraint.objects[0]].velocity, world[constraint.objects[1]].velocity]));
             result.push((zeta_term + j_term) / delta_time);
         }
