@@ -9,6 +9,8 @@ pub enum DetectorKind {
     Naive,
     /// Split *detection only* into multiple substeps based upon the unaffected motion of the objects.
     Speculative {
+        /// Whether to include external forces when computing objects' theoretical trajectories.
+        include_external_forces: bool,
         /// How to step.
         mode: SpeculativeStepMode,
     }
@@ -42,7 +44,8 @@ impl Detector {
         self.contacts.clear();
         match self.kind {
             DetectorKind::Naive => Self::update_naive(world, &mut self.contacts),
-            DetectorKind::Speculative { mode } => Self::update_speculative(mode, world, delta_time, &mut self.contacts),
+            DetectorKind::Speculative { include_external_forces, mode }
+                => Self::update_speculative(include_external_forces, mode, world, delta_time, &mut self.contacts),
         }
     }
 
@@ -63,12 +66,15 @@ impl Detector {
     }
 
     /// Detects contact points between objects. Uses substepping for fast pairs of objects to prevent interpenetration.
-    fn update_speculative(mode: SpeculativeStepMode, world: &PixelWorld, delta_time: f32, contacts: &mut Vec<Contact>) {
+    fn update_speculative(include_external_forces: bool, mode: SpeculativeStepMode, world: &PixelWorld, delta_time: f32, contacts: &mut Vec<Contact>) {
         for ((id_a, object_a), (id_b, object_b)) in Self::iter_object_pairs(world) {
-            let max_speed = Self::relative_speed_bound(object_a, object_b);
+            let max_speed = Self::relative_speed_bound(object_a, object_b, delta_time);
             for t_substep in mode.substep_times(max_speed, delta_time) {
-                let a_transform_new = integrate_velocity(object_a.transform, object_a.velocity, t_substep);
-                let b_transform_new = integrate_velocity(object_b.transform, object_b.velocity, t_substep);
+                let force_integration_time = if include_external_forces { t_substep } else { 0.0 };
+                let a_transform_new = integrate_velocity(object_a.transform, 
+                    integrate_force(object_a.velocity, object_a.forces.as_motion(), &object_a.body, force_integration_time), t_substep);
+                let b_transform_new = integrate_velocity(object_b.transform,
+                    integrate_force(object_b.velocity, object_b.forces.as_motion(), &object_b.body, force_integration_time), t_substep);
 
                 let start_i = contacts.len();
                 Self::gather_contacts(DetectorObject {
@@ -96,10 +102,13 @@ impl Detector {
     }
 
     /// Computes an upper bound on the relative speed between any two points on `a` and `b`.
-    fn relative_speed_bound(a: &PixelObject, b: &PixelObject) -> f32 {
-        let relative_linear_speed = (a.velocity.linear - b.velocity.linear).length();
-        let a_max_angular_speed = a.body.radius() * a.velocity.angular.abs();
-        let b_max_angular_speed = b.body.radius() * b.velocity.angular.abs();
+    fn relative_speed_bound(a: &PixelObject, b: &PixelObject, delta_time: f32) -> f32 {
+        let relative_linear_speed = (a.velocity.linear - b.velocity.linear).length()
+            + delta_time * (a.body.inverse_mass() * a.forces.force.length() + b.body.inverse_mass() * b.forces.force.length());
+        let a_max_angular_speed = a.body.radius() * (a.velocity.angular.abs()
+            + delta_time * a.body.inverse_inertia_tensor() * a.forces.torque.abs());
+        let b_max_angular_speed = b.body.radius() * (b.velocity.angular.abs()
+            + delta_time * b.body.inverse_inertia_tensor() * b.forces.torque.abs());
         relative_linear_speed + a_max_angular_speed + b_max_angular_speed
     }
 
@@ -208,13 +217,14 @@ impl SpeculativeStepMode {
 
         let t_max = TUNNEL_THRESHOLD_DISTANCE / max_speed;
         let required_steps = ((delta_time / t_max).ceil() as u32).max(1);
-        let end_distance = (delta_time - required_steps as f32 * t_max).max(0.0);
+        let t_end = (delta_time - required_steps as f32 * t_max).max(0.0);
+        let t_offset = match self {
+            SpeculativeStepMode::Floor => 0.0,
+            SpeculativeStepMode::Equidistant => 0.5 * t_end,
+            SpeculativeStepMode::Ceil => t_end,
+        };
 
-        match self {
-            SpeculativeStepMode::Floor => (0..required_steps).map(|i| (i as f32) * t_max).collect(),
-            SpeculativeStepMode::Equidistant => todo!(),
-            SpeculativeStepMode::Ceil => (0..required_steps).map(|i| (i as f32) * t_max + end_distance).collect(),
-        }
+        (0..required_steps).map(|i| (i as f32) * t_max + t_offset).collect()
     }
 }
 

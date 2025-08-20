@@ -36,13 +36,19 @@ impl Solver {
     }
 }
 
+/// Integrates the `force` on `body` into `velocity` over `delta_time`.
+pub fn integrate_force(mut velocity: Motion, force: Motion, body: &PixelBody, delta_time: f32) -> Motion {
+    velocity += delta_time * Motion {
+        linear: body.inverse_mass() * force.linear,
+        angular: body.inverse_inertia_tensor() * force.angular
+    };
+    velocity
+}
+
 /// Integrates the forces on all objects in the world, updating their velocities.
 pub fn integrate_external_forces(world: &mut PixelWorld, delta_time: f32) {
     for object in world.values_mut() {
-        object.velocity += delta_time * Motion {
-            linear: object.body.inverse_mass() * object.forces.force,
-            angular: object.body.inverse_inertia_tensor() * object.forces.torque
-        };
+        object.velocity = integrate_force(object.velocity, object.forces.as_motion(), &object.body, delta_time);
     }
 }
 

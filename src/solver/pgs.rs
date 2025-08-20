@@ -7,7 +7,9 @@ pub struct Pgs {
     /// The configuration to use.
     config: SolverConfig,
     /// A cache containing forces to use 
-    force_cache: HashMap<ConstraintId, f32>
+    force_cache: HashMap<ConstraintId, f32>,
+    pub cached_constraints: Vec<Constraint>,
+    pub cached_lambdas: Vec<f32>
 }
 
 impl Pgs {
@@ -17,7 +19,9 @@ impl Pgs {
 
         Self {
             config,
-            force_cache
+            force_cache,
+            cached_constraints: Vec::new(),
+            cached_lambdas: Vec::new()
         }
     }
     
@@ -47,6 +51,9 @@ impl Pgs {
         self.cache_constraint_forces(constraints, &lambdas);
         self.apply_constraint_forces(constraints, &lambdas, world, delta_time);
         integrate_velocities(world, delta_time);
+
+        self.cached_constraints = constraints.to_vec();
+        self.cached_lambdas = lambdas.to_vec();
     }
 
     /// Integrates constraint forces into the velocities of all objects.

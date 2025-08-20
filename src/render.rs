@@ -14,7 +14,7 @@ impl Renderer {
     /// of the world and the UI.
     pub fn draw(&mut self, physics: &PhysicsEngine, world: &mut PixelWorld) {
         self.draw_world(physics, world);
-        egui_macroquad::ui(|ctx| self.draw_ui(ctx, world));
+        egui_macroquad::ui(|ctx| self.draw_ui(ctx, physics, world));
         egui_macroquad::draw();
     }
 
@@ -67,20 +67,25 @@ impl Renderer {
     }
 
     /// Draws all user interfaces for the simulation.
-    fn draw_ui(&mut self, ctx: &egui::Context, world: &mut PixelWorld) {
-        self.draw_info_panel(ctx, world);
+    fn draw_ui(&mut self, ctx: &egui::Context, physics: &PhysicsEngine, world: &mut PixelWorld) {
+        self.draw_info_panel(ctx, physics, world);
         self.update_dragged_object(ctx, world);
         self.update_camera(ctx);
     }
 
     /// Draws an info UI panel on the right side of the screen.
-    fn draw_info_panel(&mut self, ctx: &egui::Context, world: &mut PixelWorld) {
+    fn draw_info_panel(&mut self, ctx: &egui::Context, physics: &PhysicsEngine, world: &mut PixelWorld) {
         egui::SidePanel::right("Info panel")
             .min_width(500.0)
             .show(ctx, |ui| {
             for (id, body) in world {
                 ui.label(format!("{id:?}"));
                 ui.label(format!("Velocity: {:?}", body.velocity));
+            }
+
+            if let Solver::Pgs(pgs) = &physics.solver {
+                ui.label(format!("{:?}", pgs.cached_constraints));
+                ui.label(format!("{:?}", pgs.cached_lambdas));
             }
         });
     }
