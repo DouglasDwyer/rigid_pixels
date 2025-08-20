@@ -2,6 +2,9 @@ use crate::*;
 use macroquad::prelude::*;
 use std::ops::*;
 
+/// The theoretical distance an object may move before tunneling occurs.
+const TUNNEL_THRESHOLD_DISTANCE: f32 = 0.5;
+
 /// Determines how collision detection will be performed.
 #[derive(Copy, Clone, Debug)]
 pub enum DetectorKind {
@@ -69,7 +72,7 @@ impl Detector {
     fn update_speculative(include_external_forces: bool, mode: SpeculativeStepMode, world: &PixelWorld, delta_time: f32, contacts: &mut Vec<Contact>) {
         for ((id_a, object_a), (id_b, object_b)) in Self::iter_object_pairs(world) {
             let max_speed = Self::relative_speed_bound(object_a, object_b, delta_time);
-            for t_substep in mode.substep_times(max_speed, delta_time) {
+            for (i, t_substep) in mode.substep_times(max_speed, delta_time).into_iter().enumerate() {
                 let force_integration_time = if include_external_forces { t_substep } else { 0.0 };
                 let a_transform_new = integrate_velocity(object_a.transform, 
                     integrate_force(object_a.velocity, object_a.forces.as_motion(), &object_a.body, force_integration_time), t_substep);
@@ -96,6 +99,18 @@ impl Detector {
                 for contact in &mut contacts[start_i..] {
                     contact.separation += contact.normal.dot(b_transform_relative.transform_point2(contact.relative_position[1])
                         - a_transform_relative.transform_point2(contact.relative_position[0]));
+                }
+
+                if i != 0 {
+                    let mut clear_i = start_i;
+                    while clear_i < contacts.len() {
+                        if contacts[clear_i].separation < -TUNNEL_THRESHOLD_DISTANCE {
+                            contacts.remove(clear_i);
+                        }
+                        else {
+                            clear_i += 1;
+                        }
+                    }
                 }
             }
         }
@@ -212,9 +227,6 @@ impl SpeculativeStepMode {
     /// For objects moving with relative `max_speed` over a total interval of `t_step`,
     /// determines the times at which substeps should occur.
     pub fn substep_times(&self, max_speed: f32, delta_time: f32) -> Vec<f32> {
-        /// The theoretical distance an object may move before tunneling occurs.
-        const TUNNEL_THRESHOLD_DISTANCE: f32 = 0.5;
-
         let t_max = TUNNEL_THRESHOLD_DISTANCE / max_speed;
         let required_steps = ((delta_time / t_max).ceil() as u32).max(1);
         let t_end = (delta_time - required_steps as f32 * t_max).max(0.0);

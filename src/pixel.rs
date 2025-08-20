@@ -176,7 +176,7 @@ impl PixelBody {
         }
 
         self.radius = if min_val.cmplt(max_val).all() {
-            (min_val.min(max_val) - max_val).as_vec2().length() / 2.0
+            (max_val - min_val).as_vec2().length() / 2.0
         }
         else {
             0.0
@@ -195,7 +195,7 @@ impl PixelBody {
         let inertial_displacement = self.grid.iter().fold(0.0, |acc, x| acc + (x.as_vec2() + Vec2::splat(0.5)  - self.local_center_of_mass).length_squared());
         let inertia_tensor = base_inertia + inertial_displacement;
         
-        //self.inverse_inertia_tensor = inertia_tensor.recip();
+        self.inverse_inertia_tensor = inertia_tensor.recip();
     }
 
     /// Determines the neighbors of the pixel at `position`.

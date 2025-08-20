@@ -179,8 +179,8 @@ pub struct Constraint {
 #[macroquad::main("Rigid pixels")]
 async fn main() {
     let mut simulation = Simulation::new(PhysicsEngine {
-        //detector: Detector::new(DetectorKind::Naive),
-        detector: Detector::new(DetectorKind::Speculative { include_external_forces: true, mode: SpeculativeStepMode::Floor }),
+        detector: Detector::new(DetectorKind::Naive),
+        //detector: Detector::new(DetectorKind::Speculative { include_external_forces: true, mode: SpeculativeStepMode::Floor }),
         solver: Solver::Pgs(Pgs::new(SolverConfig {
             baumgarte: 0.05,
             iterations: 8,
@@ -205,6 +205,7 @@ Improvements:
 - Speculative contacts can work for CCD. External forces NEED to be included in the objects' speculative trajectory.
   > With naive collision detection, falling objects or dragging could cause clipping
   > Without external forces, dragging could clip objects through floor
+  > Only speculative contacts with separation greater than zero should count. Separation less implies object clipped through wall.
 
 Things to think about:
 - Corner normal handling is weird. How does Teardown do it?
