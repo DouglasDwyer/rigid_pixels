@@ -199,7 +199,7 @@ Improvements:
 
 Things to think about:
 - The box_pyramid is now stable but upside_down_box_pyramid is unstable. Reducing Baumgarte to something small increases stability.
-  > Will switching to NGS or PGS also solve this?
+  > Will switching to NGS or TGS also solve this?
 - Corner normal handling is weird. How does Teardown do it?
   > Just discard any corner-corner normals that conflict?
 - There were NaNs in collision detection when voxels clipped through the opposite side of an edge. How did the 3D engine handle this?
