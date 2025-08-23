@@ -181,7 +181,7 @@ impl PixelBody {
         let summed_positions = self.grid.iter().fold(UVec3::ZERO, |acc, v| acc + uvec3(v.x, v.y, 1));
         let sz = summed_positions.z as f32;
         let mass = 1.0 * sz;
-        //self.inverse_mass = mass.recip();
+        self.inverse_mass = mass.recip();
         self.local_center_of_mass = sz.recip() * summed_positions.xy().as_vec2() + Vec2::splat(0.5);
         
         let base_inertia = mass / 6.0;

@@ -18,10 +18,9 @@ impl Spring {
     /// which is moving at `velocity`.
     pub fn force(&self, position: Vec2, velocity: Vec2) -> Vec2 {
         let displacement = position - self.origin;
-        let direction = displacement.try_normalize().unwrap_or(Vec2::X);
         let magnitude = self.k * (self.rest_length - displacement.length());
-        let acceleration_term = magnitude * direction;
-        let drag_term = self.drag * velocity.dot(direction);
-        direction * (magnitude - drag_term)
+        let acceleration_term = magnitude * displacement.try_normalize().unwrap_or(Vec2::X);
+        let drag_term = self.drag * velocity;
+        acceleration_term - drag_term
     }
 }
