@@ -73,6 +73,54 @@ impl SequentialImpulse {
 
     fn solve_velocity(&self, constraint: &mut Constraint, world: &mut PixelWorld, delta_time: f32) {
         let contact = &constraint.contact;
+        let baumgarte_velocity = -self.config.baumgarte * contact.separation.min(0.0) / delta_time;
+        let relative_velocity = Self::relative_velocity(contact, world) - baumgarte_velocity * contact.normal;
+        let velocity_per_impulse = Self::velocity_per_impulse(contact, world);
+        let impulse_per_velocity = velocity_per_impulse.inverse();
+
+        let static_friction_impulse = constraint.impulse - impulse_per_velocity * relative_velocity;
+        
+        let normal_impulse = static_friction_impulse.dot(contact.normal);
+        let planar_impulse = static_friction_impulse.reject_from_normalized(contact.normal);
+        let planar_impulse_length = planar_impulse.length();
+
+        let total_impulse_unclamped = if contact.friction * normal_impulse < planar_impulse_length {
+            let relative_velocity_without_impulse = relative_velocity - velocity_per_impulse * constraint.impulse;
+            let impulse_direction = (contact.normal + contact.friction * planar_impulse.normalize()).normalize();
+            let velocity_per_directed_impulse = velocity_per_impulse * impulse_direction;
+            let impulse_magnitude = -relative_velocity_without_impulse.dot(contact.normal) / velocity_per_directed_impulse.dot(contact.normal);
+            impulse_magnitude * impulse_direction
+        }
+        else {
+            static_friction_impulse
+        };
+
+        // Important: total impulse may only be clamped AFTER static/dynamic friction is resolved
+        let total_impulse = if total_impulse_unclamped.dot(contact.normal) < 0.0 {
+            Vec2::ZERO
+        }
+        else {
+            total_impulse_unclamped
+        };
+
+        let delta_impulse = total_impulse - constraint.impulse;
+        constraint.impulse = total_impulse;
+
+        for (index, id) in contact.objects.into_iter().enumerate() {
+            let object = &mut world[id];
+            let impulsive_torque = contact.relative_position[index].perp_dot(delta_impulse);
+            let sign = [-1.0, 1.0][index];
+            object.velocity += Velocity {
+                linear: sign * object.body.inverse_mass() * delta_impulse,
+                angular: sign * object.body.inverse_inertia_tensor() * impulsive_torque
+            };
+        }
+    }
+
+    fn solve_position() {
+        /*
+        
+        let contact = &constraint.contact;
         let relative_velocity = Self::relative_velocity(contact, world);
         let velocity_per_impulse = Self::velocity_per_impulse(contact, world);
 
@@ -95,30 +143,9 @@ impl SequentialImpulse {
                 angular: sign * object.body.inverse_inertia_tensor() * impulsive_torque
             };
         }
-
-        /*let contact = &constraint.contact;
-        let relative_velocity = Self::relative_velocity(contact, world);
-        let impulse_per_velocity = Self::impulse_per_velocity(contact, world);
-        let velocity_per_impulse = impulse_per_velocity.inverse();
-
-        let velocity_to_kill = relative_velocity.project_onto_normalized(contact.normal);
-        let impulse = impulse_per_velocity * -velocity_to_kill;
-
-        let normal_impulse = impulse.dot(contact.normal);
-        let planar_impulse = impulse.reject_from_normalized(contact.normal);
-        let planar_impulse_length = planar_impulse.length();
-
-        if contact.friction * normal_impulse < planar_impulse_length {
-            let impulse_direction = (contact.normal + contact.friction * planar_impulse.normalize()).normalize();
-            let velocity_per_directed_impulse = (velocity_per_impulse * impulse_direction).dot(contact.normal);
-            let impulse_magnitude = relative_velocity.dot(contact.normal) / velocity_per_directed_impulse;
-            impulse_magnitude * impulse_direction
-        }
-        else {
-            impulse
-        }
-
-        todo!("Apply the impulse, and clamp")*/
+        
+        
+         */
     }
 }
 
@@ -128,8 +155,8 @@ impl SequentialImpulse {
 struct Constraint {
     /// The contact dictating this constraint.
     pub contact: Contact,
-    /// The amount of impulse applied in the normal direction.
-    pub normal_impulse: f32,
+    /// The amount of impulse applied (both normal force and friction).
+    pub impulse: Vec2,
 }
 
 impl Constraint {
@@ -137,7 +164,7 @@ impl Constraint {
     pub fn new(contact: Contact) -> Self {
         Self {
             contact,
-            normal_impulse: 0.0,
+            impulse: Vec2::ZERO,
         }
     }
 }

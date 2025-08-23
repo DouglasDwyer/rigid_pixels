@@ -195,7 +195,7 @@ impl Detector {
                         objects: [a.id, b.id],
                         pixel_position: [position, corner],
                         relative_position: [world_point - a.transform.position, world_point - b.transform.position],
-                        friction: 0.0,
+                        friction: 0.25,
                         restitution: 0.0,
                         separation,
                         normal: a_to_world_space.transform_vector2(normal),
