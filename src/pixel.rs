@@ -22,13 +22,6 @@ pub struct ForceAccumulator {
     pub torque: f32
 }
 
-impl ForceAccumulator {
-    /// Gets this accumulator as a generic [`Motion`].
-    pub fn as_motion(self) -> Motion {
-        Motion { linear: self.force, angular: self.torque }
-    }
-}
-
 /// An object in the game world.
 #[derive(Debug)]
 pub struct PixelObject {
@@ -41,7 +34,7 @@ pub struct PixelObject {
     /// The location of the object.
     pub transform: Transform,
     /// The motion of the object.
-    pub velocity: Motion
+    pub velocity: Velocity
 }
 
 impl PixelObject {
@@ -52,7 +45,7 @@ impl PixelObject {
             color,
             forces: ForceAccumulator::default(),
             transform,
-            velocity: Motion::default()
+            velocity: Velocity::default()
         }
     }
 
@@ -188,7 +181,7 @@ impl PixelBody {
         let summed_positions = self.grid.iter().fold(UVec3::ZERO, |acc, v| acc + uvec3(v.x, v.y, 1));
         let sz = summed_positions.z as f32;
         let mass = 1.0 * sz;
-        self.inverse_mass = mass.recip();
+        //self.inverse_mass = mass.recip();
         self.local_center_of_mass = sz.recip() * summed_positions.xy().as_vec2() + Vec2::splat(0.5);
         
         let base_inertia = mass / 6.0;

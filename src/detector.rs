@@ -74,10 +74,10 @@ impl Detector {
             let max_speed = Self::relative_speed_bound(object_a, object_b, delta_time);
             for (i, t_substep) in mode.substep_times(max_speed, delta_time).into_iter().enumerate() {
                 let force_integration_time = if include_external_forces { t_substep } else { 0.0 };
-                let a_transform_new = integrate_velocity(object_a.transform, 
-                    integrate_force(object_a.velocity, object_a.forces.as_motion(), &object_a.body, force_integration_time), t_substep);
-                let b_transform_new = integrate_velocity(object_b.transform,
-                    integrate_force(object_b.velocity, object_b.forces.as_motion(), &object_b.body, force_integration_time), t_substep);
+                let a_transform_new = object_a.transform.integrate_velocity(t_substep,
+                    object_a.velocity.integrate_force(force_integration_time, object_a.forces, &object_a.body, ));
+                let b_transform_new = object_b.transform.integrate_velocity(t_substep,
+                    object_b.velocity.integrate_force(force_integration_time, object_b.forces, &object_b.body));
 
                 let start_i = contacts.len();
                 Self::gather_contacts(DetectorObject {
@@ -134,6 +134,8 @@ impl Detector {
         let start_i = contacts.len();
         Self::gather_corner_contacts(b, a, contacts);
 
+        // Hack: if objects are not swapped, then updating the separation doesn't work in update_speculative
+        // Make this less dumb!
         for contact in &mut contacts[start_i..] {
             *contact = contact.swap_objects();
         }

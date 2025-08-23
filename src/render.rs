@@ -68,7 +68,7 @@ impl Renderer {
 
     /// Draws all user interfaces for the simulation.
     fn draw_ui(&mut self, ctx: &egui::Context, physics: &PhysicsEngine, world: &mut PixelWorld) {
-        self.draw_info_panel(ctx, physics, world);
+        //self.draw_info_panel(ctx, physics, world);
         self.update_dragged_object(ctx, world);
         self.update_camera(ctx);
     }
@@ -81,11 +81,6 @@ impl Renderer {
             for (id, body) in world {
                 ui.label(format!("{id:?}"));
                 ui.label(format!("Velocity: {:?}", body.velocity));
-            }
-
-            if let Solver::Pgs(pgs) = &physics.solver {
-                ui.label(format!("{:?}", pgs.cached_constraints));
-                ui.label(format!("{:?}", pgs.cached_lambdas));
             }
         });
     }
@@ -144,7 +139,7 @@ impl Renderer {
                 let position = screen_world_matrix.inverse().transform_point2(vec2(latest_pos.x, latest_pos.y));
                 if let Some(dragged) = self.dragged_object {
                     let spring = Spring {
-                        k: 10000.0,
+                        k: 10.0,
                         rest_length: 0.0,
                         drag: 1000.0,
                         origin: position
@@ -153,6 +148,16 @@ impl Renderer {
                     let object = &mut world[dragged.id];
                     let world_space_point = object.transform.to_matrix().transform_point2(dragged.relative_position);
                     let point_velocity = Vec2::Y.rotate(world_space_point - object.transform.position) * object.velocity.angular + object.velocity.linear;
+                    //println!("{}", (world_space_point - object.transform.position).length() * object.velocity.angular);
+                    //println!("{}", object.body.inverse_inertia_tensor());
+                    //println!("{:?} {:?} {:?} {:?} {:?}", object.transform, object.velocity, dragged.relative_position, world_space_point, spring.force(world_space_point, point_velocity));
+                    
+                    let screen_world_matrix = self.camera.screen_world_matrix(vec2(screen_width(), screen_height()), screen_dpi_scale());
+                    Self::draw_arrow(screen_world_matrix.transform_point2(world_space_point),
+                        screen_world_matrix.transform_point2(world_space_point + spring.force(world_space_point, point_velocity)), GREEN);
+                    
+                    draw_text(&format!("{}", point_velocity.length()), 50.0, 50.0, 20.0, GREEN);
+
                     object.add_force(world_space_point, spring.force(world_space_point, point_velocity));
                 }
                 else if i.pointer.primary_pressed() {
@@ -170,7 +175,7 @@ impl Renderer {
         for (id, object) in world {
             let clicked_position = object.world_grid_matrix().inverse().transform_point2(position);
             if object.body.grid().get_or_empty(clicked_position.floor().as_ivec2().as_uvec2()) {
-                object.velocity = Motion::default();
+                object.velocity = Velocity::default();
                 self.dragged_object = Some(DraggedObject {
                     id,
                     relative_position: object.transform.to_matrix().inverse().transform_point2(position)

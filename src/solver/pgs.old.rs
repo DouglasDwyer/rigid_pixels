@@ -2,6 +2,40 @@ use std::collections::HashMap;
 
 use crate::*;
 
+
+/*
+
+
+/// A single force, generated from a constraint function `C`, that limits objects' motion.
+#[derive(Clone, Debug)]
+pub struct Constraint {
+    /// The objects affected by the constraint.
+    pub objects: [ObjectId; 2],
+    /// Uniquely identifies this constraint.
+    pub id: ConstraintId,
+    /// The value of the constraint function `C`.
+    pub c: f32,
+    /// The Jacobian associated with this constraint.
+    pub j: MotionPair,
+    /// The range of allowed force values for this constraint.
+    pub range: RangeInclusive<f32>
+}
+
+    /// Creates constraints to represent this contact.
+    pub fn to_constraints(&self) -> [Constraint; 1] {
+        [Constraint {
+            objects: self.objects,
+            id: ConstraintId { objects: self.objects, pixel_position: self.pixel_position },
+            c: self.separation,
+            j: MotionPair([
+                Motion { linear: -self.normal, angular: -self.relative_position[0].perp_dot(self.normal) },
+                Motion { linear: self.normal, angular: self.relative_position[1].perp_dot(self.normal) }
+            ]),
+            range: 0.0..=f32::MAX
+        }]
+    }
+
+ */
 #[derive(Debug)]
 pub struct Pgs {
     /// The configuration to use.

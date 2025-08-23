@@ -1,10 +1,10 @@
 use crate::*;
 use std::collections::*;
 
-pub use self::pgs::*;
+pub use self::sequential_impulse::*;
 
-/// Implements the PGS solver.
-mod pgs;
+/// Implements the sequential impulse solver.
+mod sequential_impulse;
 
 /// Determines how the physics solver will behave.
 #[derive(Copy, Clone, Debug)]
@@ -20,22 +20,49 @@ pub struct SolverConfig {
 /// An algorithm for resolving collisions between objects.
 #[derive(Debug)]
 pub enum Solver {
-    /// Basic Projected Gauss-Seidel with Baumgarte stabilization. 
-    Pgs(Pgs)
+    /// Catto-style iterative solver.
+    SequentialImpulse(SequentialImpulse)
 }
 
 impl Solver {
-    /// Solves all contacts and joints, then integrates object velocities and positions.
-    pub fn update(&mut self, contacts: &[Contact], world: &mut PixelWorld, delta_time: f32) {
+    /// Solves all contacts and joints, then updates the position/velocity of every object in `world`.
+    /// Returns a list of all constraint forces applied.
+    pub fn solve(&mut self, contacts: &[Contact], world: &mut PixelWorld, delta_time: f32) -> Vec<Force> {
         match self {
-            Solver::Pgs(pgs) => {
-                let constraints  = contacts.iter().flat_map(Contact::to_constraints).collect::<Vec<_>>();
-                pgs.solve(&constraints, world, delta_time);
-            },
+            Solver::SequentialImpulse(x) => x.solve(contacts, world, delta_time)
         }
     }
 }
 
+/// Describes a force applied by the solver.
+#[derive(Copy, Clone, Debug)]
+pub struct Force {
+    /// The object experiencing the force.
+    pub object: ObjectId,
+    /// The position (in world space) where the force is applied.
+    pub position: Vec2,
+    /// The components of the force being applied.
+    pub value: Vec2
+}
+
+
+/// Integrates the forces on all objects in the world, updating their velocities.
+fn integrate_external_forces(world: &mut PixelWorld, delta_time: f32) {
+    for object in world.values_mut() {
+        let old_velocity = object.velocity;
+        object.velocity = object.velocity.integrate_force(delta_time, object.forces, &object.body);
+        //println!("INTEGRATE {old_velocity:?} => {:?} ({delta_time} {:?})", object.velocity, object.forces);
+    }
+}
+
+/// Integrates the velocities of all objects in the world, updating their positions.
+fn integrate_velocities(world: &mut PixelWorld, delta_time: f32) {
+    for object in world.values_mut() {
+        object.transform = object.transform.integrate_velocity(delta_time, object.velocity);
+    }
+}
+
+/*
 /// Integrates the `force` on `body` into `velocity` over `delta_time`.
 pub fn integrate_force(mut velocity: Motion, force: Motion, body: &PixelBody, delta_time: f32) -> Motion {
     velocity += delta_time * Motion {
@@ -45,23 +72,10 @@ pub fn integrate_force(mut velocity: Motion, force: Motion, body: &PixelBody, de
     velocity
 }
 
-/// Integrates the forces on all objects in the world, updating their velocities.
-pub fn integrate_external_forces(world: &mut PixelWorld, delta_time: f32) {
-    for object in world.values_mut() {
-        object.velocity = integrate_force(object.velocity, object.forces.as_motion(), &object.body, delta_time);
-    }
-}
-
 /// Integrates `velocity` over `delta_time` into `transform`.
 pub fn integrate_velocity(mut transform: Transform, velocity: Motion, delta_time: f32) -> Transform {
     transform.position += delta_time * velocity.linear;
     transform.rotation += delta_time * velocity.angular;
     transform
 }
-
-/// Integrates the velocities of all objects in the world, updating their positions.
-pub fn integrate_velocities(world: &mut PixelWorld, delta_time: f32) {
-    for object in world.values_mut() {
-        object.transform = integrate_velocity(object.transform, object.velocity, delta_time);
-    }
-}
+ */

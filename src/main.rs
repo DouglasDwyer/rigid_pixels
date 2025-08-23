@@ -65,7 +65,7 @@ impl Simulation {
         
         while self.last_update < time {
             self.physics.detector.update(&self.world, self.physics.delta_time);
-            self.physics.solver.update(self.physics.detector.contacts(), &mut self.world, self.physics.delta_time);
+            self.physics.solver.solve(self.physics.detector.contacts(), &mut self.world, self.physics.delta_time);
             self.last_update += self.physics.delta_time as f64;
         }
         self.clear_force_accumulators();
@@ -84,7 +84,7 @@ impl Simulation {
     fn test_force_generator(&mut self) {
         for object in self.world.values_mut() {
             if 0.0 < object.body.inverse_mass() {
-                object.forces.force += -G * Vec2::Y / object.body.inverse_mass();
+                //object.forces.force += -G * Vec2::Y / object.body.inverse_mass();
             }
         }
     }
@@ -125,6 +125,11 @@ pub struct Contact {
 }
 
 impl Contact {
+    /// Gets a lightweight ID that can be used to track the contact across frames.
+    pub fn id(&self) -> ContactId {
+        ContactId { objects: self.objects, pixel_position: self.pixel_position }
+    }
+
     /// Swaps the order of the objects involved in the collision.
     pub fn swap_objects(&self) -> Self {
         Self {
@@ -135,44 +140,15 @@ impl Contact {
             ..*self
         }
     }
-
-    /// Creates constraints to represent this contact.
-    pub fn to_constraints(&self) -> [Constraint; 1] {
-        [Constraint {
-            objects: self.objects,
-            id: ConstraintId { objects: self.objects, pixel_position: self.pixel_position },
-            c: self.separation,
-            j: MotionPair([
-                Motion { linear: -self.normal, angular: -self.relative_position[0].perp_dot(self.normal) },
-                Motion { linear: self.normal, angular: self.relative_position[1].perp_dot(self.normal) }
-            ]),
-            range: 0.0..=f32::MAX
-        }]
-    }
 }
 
 /// Allows for uniquely identifying a constraint across frames.
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub struct ConstraintId {
+pub struct ContactId {
     /// The objects involved in the collision.
     pub objects: [ObjectId; 2],
     /// The position of each pixel involved in the collision. 
     pub pixel_position: [UVec2; 2]
-}
-
-/// A single force, generated from a constraint function `C`, that limits objects' motion.
-#[derive(Clone, Debug)]
-pub struct Constraint {
-    /// The objects affected by the constraint.
-    pub objects: [ObjectId; 2],
-    /// Uniquely identifies this constraint.
-    pub id: ConstraintId,
-    /// The value of the constraint function `C`.
-    pub c: f32,
-    /// The Jacobian associated with this constraint.
-    pub j: MotionPair,
-    /// The range of allowed force values for this constraint.
-    pub range: RangeInclusive<f32>
 }
 
 /// Executes the main loop.
@@ -181,8 +157,8 @@ async fn main() {
     let mut simulation = Simulation::new(PhysicsEngine {
         detector: Detector::new(DetectorKind::Naive),
         //detector: Detector::new(DetectorKind::Speculative { include_external_forces: true, mode: SpeculativeStepMode::Floor }),
-        solver: Solver::Pgs(Pgs::new(SolverConfig {
-            baumgarte: 0.05,
+        solver: Solver::SequentialImpulse(SequentialImpulse::new(SolverConfig {
+            baumgarte: 0.2,
             iterations: 8,
             warm_starting: true
         })),

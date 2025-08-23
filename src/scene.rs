@@ -2,12 +2,11 @@ use crate::*;
 
 /*
 TODO:
-- Speculative contacts
-- Research normals issue
 - Make PGS sequential impulse solver instead, see if that feels better
-- Consider trying to clean up matrix code to make it better match paper
+- Speculative contact deduplication using ContactIds
+- Research normals issue
 - Friction support
-- Bounce support
+- Restitution support
 - See about joints
 - Try other solvers
 */
@@ -24,8 +23,8 @@ pub fn simple() -> PixelWorld {
 /// A world with a plane and a single box.
 pub fn single_box() -> PixelWorld {
     let mut world = PixelWorld::default();
-    world.insert(create_floor1());
-    world.insert(create_box(GOLD, Transform { position: vec2(9.0, 12.5), rotation: 0.0 }, uvec2(5, 2)));
+    //world.insert(create_floor1());
+    world.insert(create_box(GOLD, Transform { position: vec2(9.0, 12.5), rotation: 0.0 }, uvec2(3, 2)));
     world
 }
 
