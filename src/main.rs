@@ -155,15 +155,14 @@ pub struct ContactId {
 #[macroquad::main("Rigid pixels")]
 async fn main() {
     let mut simulation = Simulation::new(PhysicsEngine {
-        //detector: Detector::new(DetectorKind::Naive),
         detector: Detector::new(DetectorKind::Speculative { include_external_forces: true, mode: SpeculativeStepMode::Equidistant }),
         solver: Solver::SequentialImpulse(SequentialImpulse::new(SolverConfig {
-            baumgarte: 0.1,
+            baumgarte: 0.15,
             iterations: 8,
             warm_starting: true
         })),
         delta_time: 0.015
-    }, get_time(), scene::circle_rotation_jitter());
+    }, get_time(), scene::upside_down_box_pyramid());
 
     loop {
         simulation.update(get_time());

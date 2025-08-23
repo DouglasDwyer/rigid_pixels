@@ -6,7 +6,6 @@ TODO:
 - Restitution support
 - PGS
 - PGS soft
-- Speculative contact deduplication using ContactIds
 - Research normals issue
 - Joints
   > Position constraint
@@ -45,9 +44,19 @@ pub fn double_box() -> PixelWorld {
 pub fn box_pyramid() -> PixelWorld {
     let mut world = PixelWorld::default();
     world.insert(create_floor1(0.2));
-    world.insert(create_box(GOLD, 0.2, Transform { position: vec2(8.25, 5.25), rotation: 0.0 }, uvec2(12, 5)));
-    world.insert(create_box(GOLD, 0.2, Transform { position: vec2(8.5, 9.5), rotation: 0.0 }, uvec2(8, 3)));
-    world.insert(create_box(GOLD, 0.2, Transform { position: vec2(9.0, 12.5), rotation: 0.0 }, uvec2(5, 2)));
+    world.insert(create_box(GOLD, 0.2, Transform { position: vec2(8.25, 15.25), rotation: 0.0 }, uvec2(12, 5)));
+    world.insert(create_box(GOLD, 0.2, Transform { position: vec2(8.5, 19.5), rotation: 0.0 }, uvec2(8, 3)));
+    world.insert(create_box(GOLD, 0.2, Transform { position: vec2(9.0, 22.5), rotation: 0.0 }, uvec2(5, 2)));
+    world
+}
+
+/// A world where several boxes (each bigger in size) are stacked atop one another.
+pub fn upside_down_box_pyramid() -> PixelWorld {
+    let mut world = PixelWorld::default();
+    world.insert(create_floor1(0.2));
+    world.insert(create_box(GOLD, 0.2, Transform { position: vec2(8.25, 19.25), rotation: 0.0 }, uvec2(12, 5)));
+    world.insert(create_box(GOLD, 0.2, Transform { position: vec2(8.5, 14.5), rotation: 0.0 }, uvec2(8, 3)));
+    world.insert(create_box(GOLD, 0.2, Transform { position: vec2(9.0, 8.5), rotation: 0.0 }, uvec2(5, 2)));
     world
 }
 

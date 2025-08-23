@@ -12,6 +12,11 @@ pub struct SequentialImpulse {
 }
 
 impl SequentialImpulse {
+    /// A small amount of error to maintain when solving contact constraints.
+    /// This ensures that the collision detector consistently picks up on contacts
+    /// even after they are initially solved.
+    const LINEAR_SLOP: f32 = 0.005;
+
     /// Creates a new sequential impulse solver.
     pub fn new(config: SolverConfig) -> Self {
         let force_cache = HashMap::new();
@@ -47,10 +52,11 @@ impl SequentialImpulse {
         Vec::new()
     }
 
+    /// Solves a single velocity constraint, updating the total applied impulse and the velocity
+    /// of the bodies in the `world`.
     fn solve_velocity(&self, constraint: &mut Constraint, world: &mut PixelWorld, delta_time: f32) {
         let contact = &constraint.contact;
-        let baumgarte_velocity = -self.config.baumgarte * contact.separation.min(0.0) / delta_time;
-        let relative_velocity = Self::relative_velocity(contact, world) - baumgarte_velocity * contact.normal;
+        let relative_velocity = Self::relative_velocity(contact, world) + self.bias_velocity(contact, delta_time);
         let velocity_per_impulse = Self::velocity_per_impulse(contact, world);
         let impulse_per_velocity = velocity_per_impulse.inverse();
 
@@ -125,6 +131,7 @@ impl SequentialImpulse {
         }
     }
 
+    /// Reapplies constraint forces from the previous tick to improve convergence.
     fn warm_start_constraints(&self, constraints: &mut [Constraint], world: &mut PixelWorld) {
         if self.config.warm_starting {
             for constraint in constraints {
@@ -135,6 +142,8 @@ impl SequentialImpulse {
         }
     }
 
+    /// Applies an impulse from a contact. Updates the contact's total impulse and the velocity of
+    /// the associated bodies in the `world`.
     fn apply_impulse(constraint: &mut Constraint, world: &mut PixelWorld, impulse: Vec2) {
         constraint.impulse += impulse;
         for (index, id) in constraint.contact.objects.into_iter().enumerate() {
@@ -146,6 +155,23 @@ impl SequentialImpulse {
                 angular: sign * object.body.inverse_inertia_tensor() * impulsive_torque
             };
         }
+    }
+
+    /// Computes the bias velocity to use when solving a contact constraint.
+    /// 
+    /// For speculative contacts, the bias removes exactly enough velocity
+    /// to eliminate any separation between the bodies.
+    /// 
+    /// For non-speculative contacts, the bias includes the Baumgarte coefficient and slop.
+    fn bias_velocity(&self, contact: &Contact, delta_time: f32) -> Vec2 {
+        let magnitude = if contact.separation < 0.0 {
+            self.config.baumgarte * (contact.separation + Self::LINEAR_SLOP).min(0.0) / delta_time
+        }
+        else {
+            contact.separation / delta_time
+        };
+
+        magnitude * contact.normal
     }
 
     /// Computes a linear map from impulse to the associated velocity.

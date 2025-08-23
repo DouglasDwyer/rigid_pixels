@@ -70,6 +70,7 @@ impl Detector {
 
     /// Detects contact points between objects. Uses substepping for fast pairs of objects to prevent interpenetration.
     fn update_speculative(include_external_forces: bool, mode: SpeculativeStepMode, world: &PixelWorld, delta_time: f32, contacts: &mut Vec<Contact>) {
+        let initial_i = contacts.len();
         for ((id_a, object_a), (id_b, object_b)) in Self::iter_object_pairs(world) {
             let max_speed = Self::relative_speed_bound(object_a, object_b, delta_time);
             for (i, t_substep) in mode.substep_times(max_speed, delta_time).into_iter().enumerate() {
@@ -104,7 +105,8 @@ impl Detector {
                 if i != 0 {
                     let mut clear_i = start_i;
                     while clear_i < contacts.len() {
-                        if contacts[clear_i].separation < -TUNNEL_THRESHOLD_DISTANCE {
+                        let contact = &contacts[clear_i];
+                        if contacts[initial_i..clear_i].iter().any(|x| x.id() == contact.id()) || contact.separation < -TUNNEL_THRESHOLD_DISTANCE {
                             contacts.remove(clear_i);
                         }
                         else {
