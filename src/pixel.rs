@@ -64,6 +64,8 @@ impl PixelObject {
 /// Holds intrinsic data about a rigid object.
 #[derive(Clone, Debug, Default)]
 pub struct PixelBody {
+    /// The coefficient of friction along this body's surface.
+    friction: f32,
     /// The center of mass in the grid frame.
     local_center_of_mass: Vec2,
     /// The invrese of `m`.
@@ -83,8 +85,9 @@ pub struct PixelBody {
 impl PixelBody {
     /// Creates a new body for the given geometry.
     /// If `fixed` is true, then the body is presumed not to move.
-    pub fn new(grid: PixelGrid, fixed: bool) -> Self {
+    pub fn new(grid: PixelGrid, friction: f32, fixed: bool) -> Self {
         let mut result = Self {
+            friction,
             local_center_of_mass: Vec2::ZERO,
             neighbors: Vec::new(),
             corners: Vec::new(),
@@ -102,6 +105,11 @@ impl PixelBody {
     /// Gets a list of all corner voxels in the body.
     pub fn corners(&self) -> &[UVec2] {
         &self.corners
+    }
+
+    /// Gets the friction along this body's surface.
+    pub fn friction(&self) -> f32 {
+        self.friction
     }
 
     /// The grid of pixels associated with the body.

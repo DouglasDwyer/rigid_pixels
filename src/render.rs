@@ -97,7 +97,7 @@ impl Renderer {
                 }
                 
                 self.camera.zoom = (self.camera.zoom * SCROLL_SPEED.powf(i.smooth_scroll_delta.y))
-                    .clamp(0.5, 35.0);
+                    .clamp(0.5, 50.0);
             });
         }
     }

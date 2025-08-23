@@ -195,7 +195,7 @@ impl Detector {
                         objects: [a.id, b.id],
                         pixel_position: [position, corner],
                         relative_position: [world_point - a.transform.position, world_point - b.transform.position],
-                        friction: 0.25,
+                        friction: Self::mix_friction(a.body, b.body),
                         restitution: 0.0,
                         separation,
                         normal: a_to_world_space.transform_vector2(normal),
@@ -212,15 +212,23 @@ impl Detector {
         world.iter().flat_map(|a| world.iter().map(move |b| (a, b)))
             .filter(|((id_a, _), (id_b, _))| *id_a < *id_b)
     }
+
+    /// Gets the combined coefficient of frction for the two bodies.
+    fn mix_friction(a: &PixelBody, b: &PixelBody) -> f32 {
+        0.5 * (a.friction() + b.friction())
+    }
 }
 
 /// How to place the speculative steps.
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum SpeculativeStepMode {
+    /// Place the speculative steps so that they are equally far apart from each other
+    /// and `t = start`/`t = end`.
+    Equidistant,
     /// Place the first speculative step at `t = start`.
     Floor,
-    /// Space speculative steps so that they are equally apart.
-    Equidistant,
+    /// Place the first and last speculative step so that `t_0 - start = end - t_n`.
+    Midpoint,
     /// Place the last speculative step at `t = end`.
     Ceil
 }
@@ -231,14 +239,22 @@ impl SpeculativeStepMode {
     pub fn substep_times(&self, max_speed: f32, delta_time: f32) -> Vec<f32> {
         let t_max = TUNNEL_THRESHOLD_DISTANCE / max_speed;
         let required_steps = ((delta_time / t_max).ceil() as u32).max(1);
-        let t_end = (delta_time - required_steps as f32 * t_max).max(0.0);
-        let t_offset = match self {
-            SpeculativeStepMode::Floor => 0.0,
-            SpeculativeStepMode::Equidistant => 0.5 * t_end,
-            SpeculativeStepMode::Ceil => t_end,
-        };
 
-        (0..required_steps).map(|i| (i as f32) * t_max + t_offset).collect()
+        if *self == Self::Equidistant {
+            let t_substep = delta_time / (required_steps + 1) as f32;
+            (1..=required_steps).map(|i| (i as f32) * t_substep).collect()
+        }
+        else {
+            let t_end = (delta_time - t_max * (required_steps - 1) as f32).max(0.0);
+            let t_offset = match self {
+                Self::Floor => 0.0,
+                Self::Midpoint => 0.5 * t_end,
+                Self::Ceil => t_end,
+                Self::Equidistant => unreachable!()
+            };
+
+            (0..required_steps).map(|i| (i as f32) * t_max + t_offset).collect()
+        }
     }
 }
 

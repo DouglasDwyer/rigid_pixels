@@ -8,7 +8,7 @@ pub struct SequentialImpulse {
     /// The configuration to use.
     config: SolverConfig,
     /// A cache containing forces from the previous frame, to use with warm starting.
-    force_cache: HashMap<ContactId, f32>,
+    force_cache: HashMap<ContactId, Vec2>,
 }
 
 impl SequentialImpulse {
@@ -30,10 +30,10 @@ impl SequentialImpulse {
 
     /// Solves velocity constraints, then updates the velocity of every object in `world`.
     fn solve_velocities(&mut self, contacts: &[Contact], world: &mut PixelWorld, delta_time: f32) -> Vec<Force> {
-        //todo: warm starting
         integrate_external_forces(world, delta_time);
-
+        
         let mut constraints = contacts.iter().copied().map(Constraint::new).collect::<Vec<_>>();
+        self.warm_start_constraints(&mut constraints, world);
         
         for _ in 0..self.config.iterations {
             for constraint in &mut constraints {
@@ -41,34 +41,10 @@ impl SequentialImpulse {
             }
         }
 
+        self.cache_constraint_forces(&constraints);
         integrate_velocities(world, delta_time);
+        
         Vec::new()
-    }
-
-    /// Computes a linear map from impulse to the associated velocity.
-    fn velocity_per_impulse(contact: &Contact, world: &PixelWorld) -> Mat2 {
-        let mut result = Mat2::ZERO;
-
-        for (index, id) in contact.objects.into_iter().enumerate() {
-            let object = &world[id];
-
-            let scaled_tangent = contact.relative_position[index].rotate(Vec2::Y);
-            result += Mat2::from_diagonal(Vec2::splat(object.body.inverse_mass()));
-            result += object.body.inverse_inertia_tensor() * vec2_outer_product(scaled_tangent, scaled_tangent);
-        }
-
-        result
-    }
-
-    /// Gets the relative velocity of two objects at the `contact` point.
-    fn relative_velocity(contact: &Contact, world: &PixelWorld) -> Vec2 {
-        let mut velocity = Vec2::ZERO;
-        for (index, object) in contact.objects.into_iter().enumerate() {
-            let body = &world[object];
-            let relative_position = contact.relative_position[index];
-            velocity += [-1.0, 1.0][index] * (body.velocity.linear + body.velocity.angular * relative_position.rotate(Vec2::Y));
-        }
-        velocity
     }
 
     fn solve_velocity(&self, constraint: &mut Constraint, world: &mut PixelWorld, delta_time: f32) {
@@ -104,17 +80,7 @@ impl SequentialImpulse {
         };
 
         let delta_impulse = total_impulse - constraint.impulse;
-        constraint.impulse = total_impulse;
-
-        for (index, id) in contact.objects.into_iter().enumerate() {
-            let object = &mut world[id];
-            let impulsive_torque = contact.relative_position[index].perp_dot(delta_impulse);
-            let sign = [-1.0, 1.0][index];
-            object.velocity += Velocity {
-                linear: sign * object.body.inverse_mass() * delta_impulse,
-                angular: sign * object.body.inverse_inertia_tensor() * impulsive_torque
-            };
-        }
+        Self::apply_impulse(constraint, world, delta_impulse);
     }
 
     fn solve_position() {
@@ -146,6 +112,66 @@ impl SequentialImpulse {
         
         
          */
+    }
+
+    /// Caches the forces from this tick. The forces will be used in warm-starting
+    /// the constraints for the next tick.
+    fn cache_constraint_forces(&mut self, constraints: &[Constraint]) {
+        self.force_cache.clear();
+        if self.config.warm_starting {
+            for constraint in constraints {
+                self.force_cache.insert(constraint.contact.id(), constraint.impulse);
+            }
+        }
+    }
+
+    fn warm_start_constraints(&self, constraints: &mut [Constraint], world: &mut PixelWorld) {
+        if self.config.warm_starting {
+            for constraint in constraints {
+                if let Some(impulse) = self.force_cache.get(&constraint.contact.id()).copied() {
+                    Self::apply_impulse(constraint, world, impulse);
+                }
+            }
+        }
+    }
+
+    fn apply_impulse(constraint: &mut Constraint, world: &mut PixelWorld, impulse: Vec2) {
+        constraint.impulse += impulse;
+        for (index, id) in constraint.contact.objects.into_iter().enumerate() {
+            let object = &mut world[id];
+            let impulsive_torque = constraint.contact.relative_position[index].perp_dot(impulse);
+            let sign = [-1.0, 1.0][index];
+            object.velocity += Velocity {
+                linear: sign * object.body.inverse_mass() * impulse,
+                angular: sign * object.body.inverse_inertia_tensor() * impulsive_torque
+            };
+        }
+    }
+
+    /// Computes a linear map from impulse to the associated velocity.
+    fn velocity_per_impulse(contact: &Contact, world: &PixelWorld) -> Mat2 {
+        let mut result = Mat2::ZERO;
+
+        for (index, id) in contact.objects.into_iter().enumerate() {
+            let object = &world[id];
+
+            let scaled_tangent = contact.relative_position[index].rotate(Vec2::Y);
+            result += Mat2::from_diagonal(Vec2::splat(object.body.inverse_mass()));
+            result += object.body.inverse_inertia_tensor() * vec2_outer_product(scaled_tangent, scaled_tangent);
+        }
+
+        result
+    }
+
+    /// Gets the relative velocity of two objects at the `contact` point.
+    fn relative_velocity(contact: &Contact, world: &PixelWorld) -> Vec2 {
+        let mut velocity = Vec2::ZERO;
+        for (index, object) in contact.objects.into_iter().enumerate() {
+            let body = &world[object];
+            let relative_position = contact.relative_position[index];
+            velocity += [-1.0, 1.0][index] * (body.velocity.linear + body.velocity.angular * relative_position.rotate(Vec2::Y));
+        }
+        velocity
     }
 }
 
