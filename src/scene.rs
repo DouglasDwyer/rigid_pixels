@@ -12,7 +12,6 @@ TODO:
   > See about force limits? How to deal with friction?
 - Use caching and projection rather than computing things like closing velocity from scratch? Though that DOES go through EVERY contact
   (which maybe is just objectively worse, OR could store like list of contacts per body and go through)
-- Try other solvers
 */
 
 /// A surface with no friction and no bounciness.
