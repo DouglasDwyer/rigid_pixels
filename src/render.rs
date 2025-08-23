@@ -148,11 +148,7 @@ impl Renderer {
                     let object = &mut world[dragged.id];
                     let world_space_point = object.transform.to_matrix().transform_point2(dragged.relative_position);
                     let point_velocity = Vec2::Y.rotate(world_space_point - object.transform.position) * object.velocity.angular + object.velocity.linear;
-                    //println!("{}", (world_space_point - object.transform.position).length() * object.velocity.angular);
-                    //println!("{}", object.body.inverse_inertia_tensor());
-                    //println!("{:?} {:?} {:?} {:?} {:?}", object.transform, object.velocity, dragged.relative_position, world_space_point, spring.force(world_space_point, point_velocity));
                     
-                    object.velocity.angular = 0.0;
                     object.add_force(world_space_point, spring.force(world_space_point, point_velocity));
                 }
                 else if i.pointer.primary_pressed() {

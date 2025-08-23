@@ -164,13 +164,13 @@ async fn main() {
         //detector: Detector::new(DetectorKind::Naive),
         detector: Detector::new(DetectorKind::Speculative { include_external_forces: true, mode: SpeculativeStepMode::Midpoint }),
         solver: Solver::SequentialImpulse(SequentialImpulse::new(SolverConfig {
-            baumgarte: 0.0,
-            position_iterations: 8,
+            baumgarte: 0.2,
+            position_iterations: 0,
             velocity_iterations: 8,
             warm_starting: true
         })),
         delta_time: 0.015
-    }, get_time(), scene::upside_down_box_pyramid());
+    }, get_time(), scene::tumbler());
 
     loop {
         simulation.update(get_time());

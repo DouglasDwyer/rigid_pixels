@@ -104,7 +104,7 @@ pub struct PixelBody {
 impl PixelBody {
     /// Creates a new body for the given geometry.
     /// If `fixed` is true, then the body is presumed not to move.
-    pub fn new(grid: PixelGrid, material: PixelMaterial, fixed: bool) -> Self {
+    pub fn new(grid: PixelGrid, material: PixelMaterial, fixed_position: bool, fixed_rotation: bool) -> Self {
         let mut result = Self {
             corners: Vec::new(),
             grid,
@@ -116,7 +116,7 @@ impl PixelBody {
             radius: 0.0
         };
 
-        result.rebuild(fixed);
+        result.rebuild(fixed_position, fixed_rotation);
 
         result
     }
@@ -167,7 +167,7 @@ impl PixelBody {
     }
 
     /// Recalculates all acceleration structure data for this body.
-    fn rebuild(&mut self, fixed: bool) {
+    fn rebuild(&mut self, fixed_position: bool, fixed_rotation: bool) {
         self.neighbors.clear();
         self.corners.clear();
 
@@ -191,9 +191,7 @@ impl PixelBody {
             }
         }
 
-        if !fixed {
-            self.update_mass_and_inertia();
-        }
+        self.update_mass_and_inertia(fixed_position, fixed_rotation);
 
         self.radius = if min_val.cmplt(max_val).all() {
             (max_val - min_val).as_vec2().length() / 2.0
@@ -204,18 +202,23 @@ impl PixelBody {
     }
 
     /// Calculates the mass and moment of inertia for the body.
-    fn update_mass_and_inertia(&mut self) {
+    fn update_mass_and_inertia(&mut self, fixed_position: bool, fixed_rotation: bool) {
         let summed_positions = self.grid.iter().fold(UVec3::ZERO, |acc, v| acc + uvec3(v.x, v.y, 1));
         let sz = summed_positions.z as f32;
         let mass = 1.0 * sz;
-        self.inverse_mass = mass.recip();
         self.local_center_of_mass = sz.recip() * summed_positions.xy().as_vec2() + Vec2::splat(0.5);
+
+        if !fixed_position {
+            self.inverse_mass = mass.recip();
+        }
         
         let base_inertia = mass / 6.0;
         let inertial_displacement = self.grid.iter().fold(0.0, |acc, x| acc + (x.as_vec2() + Vec2::splat(0.5)  - self.local_center_of_mass).length_squared());
         let inertia_tensor = base_inertia + inertial_displacement;
-        
-        self.inverse_inertia_tensor = inertia_tensor.recip();
+            
+        if !fixed_rotation {
+            self.inverse_inertia_tensor = inertia_tensor.recip();
+        }
     }
 
     /// Determines the neighbors of the pixel at `position`.

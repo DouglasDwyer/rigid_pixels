@@ -29,16 +29,6 @@ impl SequentialImpulse {
 
     /// Solves all contacts and joints, then updates the position/velocity of every object in `world`.
     pub fn solve(&mut self, contacts: &[Contact], world: &mut PixelWorld, delta_time: f32) {
-        self.solve_velocities(contacts, world, delta_time);
-        //self.solve_positions(contacts, world);
-    }
-
-    /// Solves position constraints, then updates the position of every object in `world`.
-    fn solve_positions(&mut self, contacts: &[Contact], world: &mut PixelWorld) {
-    }
-
-    /// Solves velocity constraints, then updates the velocity of every object in `world`.
-    fn solve_velocities(&mut self, contacts: &[Contact], world: &mut PixelWorld, delta_time: f32) {
         let mut constraints = contacts.iter().map(|x| VelocityConstraint::new(x, world)).collect::<Vec<_>>();
 
         integrate_external_forces(world, delta_time);
