@@ -112,10 +112,8 @@ pub struct Contact {
     pub pixel_position: [UVec2; 2],
     /// The offset from each object's origin to [`Self::position`].
     pub relative_position: [Vec2; 2],
-    /// The coefficient of friction at the contact.
-    pub friction: f32,
-    /// The coefficient of restitution at the contact.
-    pub restitution: f32,
+    /// The material properties at the contact.
+    pub material: PixelMaterial,
     /// The amount of distance between the objects. Negative when the objects *are* overlapping.
     pub separation: f32,
     /// The normal (in world space) of object `0`'s surface.
@@ -155,14 +153,14 @@ pub struct ContactId {
 #[macroquad::main("Rigid pixels")]
 async fn main() {
     let mut simulation = Simulation::new(PhysicsEngine {
-        detector: Detector::new(DetectorKind::Speculative { include_external_forces: true, mode: SpeculativeStepMode::Equidistant }),
+        detector: Detector::new(DetectorKind::Speculative { include_external_forces: true, mode: SpeculativeStepMode::Midpoint }),
         solver: Solver::SequentialImpulse(SequentialImpulse::new(SolverConfig {
             baumgarte: 0.2,
             iterations: 8,
             warm_starting: true
         })),
         delta_time: 0.015
-    }, get_time(), scene::circle_rotation_jitter());
+    }, get_time(), scene::box_pyramid());
 
     loop {
         simulation.update(get_time());
@@ -195,6 +193,7 @@ Things to think about:
 - Corner normal handling is weird. How does Teardown do it?
   > Just discard any corner-corner normals that conflict?
 - There were NaNs in collision detection when voxels clipped through the opposite side of an edge. How did the 3D engine handle this?
-
+- Box2D tracks something called totalNormalImpulse to check whether any impulse was EVER generated for a speculative contact.
+  It prevents restitution from being applied to contacts without it. How important is this?
 
 */

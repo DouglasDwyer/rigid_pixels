@@ -10,6 +10,25 @@ new_key_type! {
     pub struct ObjectId;
 }
 
+/// Holds physical properties of a material.
+#[derive(Copy, Clone, Debug)]
+pub struct PixelMaterial {
+    /// The friction along the material's surface.
+    pub friction: f32,
+    /// The bounciness of the material.
+    pub restitution: f32
+}
+
+impl PixelMaterial {
+    /// Combines two materials to describe the surface properties when they meet.
+    pub fn mix(a: Self, b: Self) -> Self {
+        Self {
+            friction: 0.5 * (a.friction + b.friction),
+            restitution: a.restitution.max(b.restitution)
+        }
+    }
+}
+
 /// Stores a collection of objects in a world.
 pub type PixelWorld = SlotMap<ObjectId, PixelObject>;
 
@@ -62,16 +81,16 @@ impl PixelObject {
 }
 
 /// Holds intrinsic data about a rigid object.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct PixelBody {
-    /// The coefficient of friction along this body's surface.
-    friction: f32,
     /// The center of mass in the grid frame.
     local_center_of_mass: Vec2,
     /// The invrese of `m`.
     inverse_mass: f32,
     /// The inverse of `I`.
     inverse_inertia_tensor: f32,
+    /// The material governing physical properties.
+    material: PixelMaterial,
     /// A 2D grid with neighbor information for each pixel. Same size as [`Self::grid`].
     neighbors: Vec<PixelNeighbors>,
     /// A list of all positions in `grid` containing corner pixels.
@@ -85,15 +104,15 @@ pub struct PixelBody {
 impl PixelBody {
     /// Creates a new body for the given geometry.
     /// If `fixed` is true, then the body is presumed not to move.
-    pub fn new(grid: PixelGrid, friction: f32, fixed: bool) -> Self {
+    pub fn new(grid: PixelGrid, material: PixelMaterial, fixed: bool) -> Self {
         let mut result = Self {
-            friction,
-            local_center_of_mass: Vec2::ZERO,
-            neighbors: Vec::new(),
             corners: Vec::new(),
             grid,
             inverse_mass: 0.0,
             inverse_inertia_tensor: 0.0,
+            local_center_of_mass: Vec2::ZERO,
+            material,
+            neighbors: Vec::new(),
             radius: 0.0
         };
 
@@ -105,11 +124,6 @@ impl PixelBody {
     /// Gets a list of all corner voxels in the body.
     pub fn corners(&self) -> &[UVec2] {
         &self.corners
-    }
-
-    /// Gets the friction along this body's surface.
-    pub fn friction(&self) -> f32 {
-        self.friction
     }
 
     /// The grid of pixels associated with the body.
@@ -125,6 +139,11 @@ impl PixelBody {
     /// The inverse of the moment of inertia.
     pub fn inverse_inertia_tensor(&self) -> f32 {
         self.inverse_inertia_tensor
+    }
+
+    /// Gets the material properties for this object.
+    pub fn material(&self) -> PixelMaterial {
+        self.material
     }
 
     /// Gets a matrix that converts from grid space to world space.

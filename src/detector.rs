@@ -197,8 +197,7 @@ impl Detector {
                         objects: [a.id, b.id],
                         pixel_position: [position, corner],
                         relative_position: [world_point - a.transform.position, world_point - b.transform.position],
-                        friction: Self::mix_friction(a.body, b.body),
-                        restitution: 0.0,
+                        material: PixelMaterial::mix(a.body.material(), b.body.material()),
                         separation,
                         normal: a_to_world_space.transform_vector2(normal),
                         position: world_point
@@ -213,11 +212,6 @@ impl Detector {
     fn iter_object_pairs<'a>(world: &'a PixelWorld) -> impl IntoIterator<Item = ((ObjectId, &'a PixelObject), (ObjectId, &'a PixelObject))> {
         world.iter().flat_map(|a| world.iter().map(move |b| (a, b)))
             .filter(|((id_a, _), (id_b, _))| *id_a < *id_b)
-    }
-
-    /// Gets the combined coefficient of frction for the two bodies.
-    fn mix_friction(a: &PixelBody, b: &PixelBody) -> f32 {
-        0.5 * (a.friction() + b.friction())
     }
 }
 
