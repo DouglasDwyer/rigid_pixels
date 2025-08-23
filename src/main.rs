@@ -157,12 +157,12 @@ async fn main() {
     let mut simulation = Simulation::new(PhysicsEngine {
         detector: Detector::new(DetectorKind::Speculative { include_external_forces: true, mode: SpeculativeStepMode::Equidistant }),
         solver: Solver::SequentialImpulse(SequentialImpulse::new(SolverConfig {
-            baumgarte: 0.15,
+            baumgarte: 0.2,
             iterations: 8,
             warm_starting: true
         })),
         delta_time: 0.015
-    }, get_time(), scene::upside_down_box_pyramid());
+    }, get_time(), scene::circle_rotation_jitter());
 
     loop {
         simulation.update(get_time());
@@ -181,9 +181,20 @@ Improvements:
   > With naive collision detection, falling objects or dragging could cause clipping
   > Without external forces, dragging could clip objects through floor
   > Only speculative contacts with separation greater than zero should count. Separation less implies object clipped through wall.
+  > Speculative contacts can be deduplicated since multiple may occur on the same voxel. Earlier contacts should be preferred
+  > In the solver, speculative contacts should be handled by removing JUST ENOUGH velocity that separation is zero at the end of the time step
+    (this implies restitution must be handled after solving, because otherwise objects will not hit the ground before bouncing)
+- Using sequential impulses allows for robust handling of normal/friction simultaneously
+  > The impulse vector must be clipped AFTER dynamic friction is calculated
+- Linear slop is necessary to ensure the collision detector doesn't miss contacts that are close together
+  > Speculative collisions alone did not fix the issue of occasionally missing contacts
 
 Things to think about:
+- The box_pyramid is now stable but upside_down_box_pyramid is unstable. Reducing Baumgarte to something small increases stability.
+  > Will switching to NGS or PGS also solve this?
 - Corner normal handling is weird. How does Teardown do it?
+  > Just discard any corner-corner normals that conflict?
 - There were NaNs in collision detection when voxels clipped through the opposite side of an edge. How did the 3D engine handle this?
+
 
 */
