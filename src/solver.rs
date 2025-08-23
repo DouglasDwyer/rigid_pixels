@@ -11,8 +11,10 @@ mod sequential_impulse;
 pub struct SolverConfig {
     /// The Baumgarte factor to apply.
     pub baumgarte: f32,
-    /// The number of solver iterations to perform.
-    pub iterations: u32,
+    /// The number of position-correcting (NGS) iterations to perform.
+    pub position_iterations: u32,
+    /// The number of velocity-correcting iterations to perform.
+    pub velocity_iterations: u32,
     /// Whether to cache constraint forces and use them as the initial guess next frame.
     pub warm_starting: bool
 }
@@ -26,8 +28,7 @@ pub enum Solver {
 
 impl Solver {
     /// Solves all contacts and joints, then updates the position/velocity of every object in `world`.
-    /// Returns a list of all constraint forces applied.
-    pub fn solve(&mut self, contacts: &[Contact], world: &mut PixelWorld, delta_time: f32) -> Vec<Force> {
+    pub fn solve(&mut self, contacts: &[Contact], world: &mut PixelWorld, delta_time: f32) {
         match self {
             Solver::SequentialImpulse(x) => x.solve(contacts, world, delta_time)
         }

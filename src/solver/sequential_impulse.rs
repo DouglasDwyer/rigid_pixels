@@ -28,21 +28,33 @@ impl SequentialImpulse {
     }
 
     /// Solves all contacts and joints, then updates the position/velocity of every object in `world`.
-    /// Returns a list of all constraint forces applied.
-    pub fn solve(&mut self, contacts: &[Contact], world: &mut PixelWorld, delta_time: f32) -> Vec<Force> {
-        self.solve_velocities(contacts, world, delta_time)
+    pub fn solve(&mut self, contacts: &[Contact], world: &mut PixelWorld, delta_time: f32) {
+        self.solve_velocities(contacts, world, delta_time);
+        //self.solve_positions(contacts, world);
+    }
+
+    /// Solves position constraints, then updates the position of every object in `world`.
+    fn solve_positions(&mut self, contacts: &[Contact], world: &mut PixelWorld) {
     }
 
     /// Solves velocity constraints, then updates the velocity of every object in `world`.
-    fn solve_velocities(&mut self, contacts: &[Contact], world: &mut PixelWorld, delta_time: f32) -> Vec<Force> {
+    fn solve_velocities(&mut self, contacts: &[Contact], world: &mut PixelWorld, delta_time: f32) {
+        let mut constraints = contacts.iter().map(|x| VelocityConstraint::new(x, world)).collect::<Vec<_>>();
+
         integrate_external_forces(world, delta_time);
-        
-        let mut constraints = contacts.iter().map(|x| Constraint::new(x, world)).collect::<Vec<_>>();
         self.warm_start_constraints(&mut constraints, world);
         
-        for _ in 0..self.config.iterations {
+        for _ in 0..self.config.velocity_iterations {
             for constraint in &mut constraints {
                 self.solve_velocity(constraint, world, delta_time);
+            }
+        }
+
+        let mut pos_constraints = contacts.iter().map(PositionConstraint::new).collect::<Vec<_>>();
+
+        for _ in 0..self.config.position_iterations {
+            for constraint in &mut pos_constraints {
+                self.solve_position(constraint, world);
             }
         }
 
@@ -52,11 +64,12 @@ impl SequentialImpulse {
         for constraint in &mut constraints {
             self.solve_restitution(constraint, world);
         }
-        
-        Vec::new()
     }
 
-    fn solve_restitution(&mut self, constraint: &mut Constraint, world: &mut PixelWorld) {
+    /// Applies restitution to a constraint. Solves for the normal impulse that makes
+    /// the relative velocity equal to the opposite of the *original* relative velocity,
+    /// scaled by the restitution.
+    fn solve_restitution(&mut self, constraint: &mut VelocityConstraint, world: &mut PixelWorld) {
         let contact = &constraint.contact;
         let relative_velocity = calculate_relative_velocity(contact, world);
         let velocity_per_impulse = Self::velocity_per_impulse(contact, world);
@@ -72,11 +85,61 @@ impl SequentialImpulse {
         Self::apply_impulse(constraint, world, delta_impulse * contact.normal);
     }
 
+    /// Solves a single position constraint, updating the total applied integral impulse and
+    /// the positions of the bodies in the `world`.
+    fn solve_position(&self, constraint: &mut PositionConstraint, world: &mut PixelWorld) {
+        let contact = &constraint.contact;
+        let displacement_per_integral_impulse = Self::velocity_per_impulse(contact, world);
+
+        let normal_displacement_per_integral_impulse = displacement_per_integral_impulse * contact.normal;
+        let required_displacement = contact.separation(world) + Self::LINEAR_SLOP;
+        let required_integral_impulse = -required_displacement / normal_displacement_per_integral_impulse.dot(contact.normal);
+
+        let total_integral_impulse = (constraint.integral_impulse + required_integral_impulse).max(0.0);
+        let delta_integral_impulse = (total_integral_impulse - constraint.integral_impulse) * contact.normal;
+        constraint.integral_impulse = total_integral_impulse;
+
+        for (index, id) in contact.objects.into_iter().enumerate() {
+            let object = &mut world[id];
+            let relative_position = contact.local_position[index].rotate(Vec2::from_angle(object.transform.rotation));
+            let integral_impulsive_torque = relative_position.perp_dot(delta_integral_impulse);
+            let sign = [-1.0, 1.0][index];
+            object.transform.position += sign * object.body.inverse_mass() * delta_integral_impulse;
+            object.transform.rotation += sign * object.body.inverse_inertia_tensor() * integral_impulsive_torque;
+        }
+        
+        /*
+        let contact = &constraint.contact;
+        let relative_velocity = Self::relative_velocity(contact, world);
+        let velocity_per_impulse = Self::velocity_per_impulse(contact, world);
+
+        let baumgarte_velocity = -self.config.baumgarte * contact.separation.min(0.0) / delta_time;
+        let normal_velocity_per_impulse = velocity_per_impulse * contact.normal;
+        let required_impulse = (baumgarte_velocity - relative_velocity.dot(contact.normal)) / normal_velocity_per_impulse.dot(contact.normal);
+
+        let total_impulse = (constraint.normal_impulse + required_impulse).max(0.0);
+        let delta_impulse = total_impulse - constraint.normal_impulse;
+        constraint.normal_impulse = total_impulse;
+
+        let impulse = delta_impulse * contact.normal;
+
+        for (index, id) in contact.objects.into_iter().enumerate() {
+            let object = &mut world[id];
+            let impulsive_torque = contact.relative_position[index].perp_dot(impulse);
+            let sign = [-1.0, 1.0][index];
+            object.velocity += Velocity {
+                linear: sign * object.body.inverse_mass() * impulse,
+                angular: sign * object.body.inverse_inertia_tensor() * impulsive_torque
+            };
+        }        
+         */
+    }
+
     /// Solves a single velocity constraint, updating the total applied impulse and the velocity
     /// of the bodies in the `world`.
-    fn solve_velocity(&self, constraint: &mut Constraint, world: &mut PixelWorld, delta_time: f32) {
+    fn solve_velocity(&self, constraint: &mut VelocityConstraint, world: &mut PixelWorld, delta_time: f32) {
         let contact = &constraint.contact;
-        let relative_velocity = calculate_relative_velocity(contact, world) + self.bias_velocity(contact, delta_time);
+        let relative_velocity = calculate_relative_velocity(contact, world) + self.bias_velocity(contact, world, delta_time);
         let velocity_per_impulse = Self::velocity_per_impulse(contact, world);
         let impulse_per_velocity = velocity_per_impulse.inverse();
 
@@ -109,40 +172,9 @@ impl SequentialImpulse {
         Self::apply_impulse(constraint, world, delta_impulse);
     }
 
-    fn solve_position() {
-        /*
-        
-        let contact = &constraint.contact;
-        let relative_velocity = Self::relative_velocity(contact, world);
-        let velocity_per_impulse = Self::velocity_per_impulse(contact, world);
-
-        let baumgarte_velocity = -self.config.baumgarte * contact.separation.min(0.0) / delta_time;
-        let normal_velocity_per_impulse = velocity_per_impulse * contact.normal;
-        let required_impulse = (baumgarte_velocity - relative_velocity.dot(contact.normal)) / normal_velocity_per_impulse.dot(contact.normal);
-
-        let total_impulse = (constraint.normal_impulse + required_impulse).max(0.0);
-        let delta_impulse = total_impulse - constraint.normal_impulse;
-        constraint.normal_impulse = total_impulse;
-
-        let impulse = delta_impulse * contact.normal;
-
-        for (index, id) in contact.objects.into_iter().enumerate() {
-            let object = &mut world[id];
-            let impulsive_torque = contact.relative_position[index].perp_dot(impulse);
-            let sign = [-1.0, 1.0][index];
-            object.velocity += Velocity {
-                linear: sign * object.body.inverse_mass() * impulse,
-                angular: sign * object.body.inverse_inertia_tensor() * impulsive_torque
-            };
-        }
-        
-        
-         */
-    }
-
     /// Caches the forces from this tick. The forces will be used in warm-starting
     /// the constraints for the next tick.
-    fn cache_constraint_forces(&mut self, constraints: &[Constraint]) {
+    fn cache_constraint_forces(&mut self, constraints: &[VelocityConstraint]) {
         self.force_cache.clear();
         if self.config.warm_starting {
             for constraint in constraints {
@@ -152,7 +184,7 @@ impl SequentialImpulse {
     }
 
     /// Reapplies constraint forces from the previous tick to improve convergence.
-    fn warm_start_constraints(&self, constraints: &mut [Constraint], world: &mut PixelWorld) {
+    fn warm_start_constraints(&self, constraints: &mut [VelocityConstraint], world: &mut PixelWorld) {
         if self.config.warm_starting {
             for constraint in constraints {
                 if let Some(impulse) = self.force_cache.get(&constraint.contact.id()).copied() {
@@ -164,11 +196,13 @@ impl SequentialImpulse {
 
     /// Applies an impulse from a contact. Updates the contact's total impulse and the velocity of
     /// the associated bodies in the `world`.
-    fn apply_impulse(constraint: &mut Constraint, world: &mut PixelWorld, impulse: Vec2) {
+    fn apply_impulse(constraint: &mut VelocityConstraint, world: &mut PixelWorld, impulse: Vec2) {
+        let contact = &constraint.contact;
         constraint.impulse += impulse;
         for (index, id) in constraint.contact.objects.into_iter().enumerate() {
             let object = &mut world[id];
-            let impulsive_torque = constraint.contact.relative_position[index].perp_dot(impulse);
+            let relative_position = contact.local_position[index].rotate(Vec2::from_angle(object.transform.rotation));
+            let impulsive_torque = relative_position.perp_dot(impulse);
             let sign = [-1.0, 1.0][index];
             object.velocity += Velocity {
                 linear: sign * object.body.inverse_mass() * impulse,
@@ -183,12 +217,13 @@ impl SequentialImpulse {
     /// to eliminate any separation between the bodies.
     /// 
     /// For non-speculative contacts, the bias includes the Baumgarte coefficient and slop.
-    fn bias_velocity(&self, contact: &Contact, delta_time: f32) -> Vec2 {
-        let magnitude = if contact.separation < 0.0 {
-            self.config.baumgarte * (contact.separation + Self::LINEAR_SLOP).min(0.0) / delta_time
+    fn bias_velocity(&self, contact: &Contact, world: &PixelWorld, delta_time: f32) -> Vec2 {
+        let separation = contact.separation(world);
+        let magnitude = if separation < 0.0 {
+            self.config.baumgarte * (separation + Self::LINEAR_SLOP).min(0.0) / delta_time
         }
         else {
-            contact.separation / delta_time
+            separation / delta_time
         };
 
         magnitude * contact.normal
@@ -201,7 +236,7 @@ impl SequentialImpulse {
         for (index, id) in contact.objects.into_iter().enumerate() {
             let object = &world[id];
 
-            let scaled_tangent = contact.relative_position[index].rotate(Vec2::Y);
+            let scaled_tangent = contact.local_position[index].rotate(Vec2::from_angle(object.transform.rotation)).rotate(Vec2::Y);
             result += Mat2::from_diagonal(Vec2::splat(object.body.inverse_mass()));
             result += object.body.inverse_inertia_tensor() * vec2_outer_product(scaled_tangent, scaled_tangent);
         }
@@ -210,10 +245,31 @@ impl SequentialImpulse {
     }
 }
 
-/// Holds information about the forces generated by a [`Contact`]. Used
-/// by the solver for computation.
+/// Holds information about the displacements generated by a [`Contact`].
+/// Used by the solver for computation.
 #[derive(Copy, Clone, Debug)]
-struct Constraint {
+struct PositionConstraint {
+    /// The contact dictating this constraint.
+    pub contact: Contact,
+    /// The total amount of impulse applied, integrated over the time step.
+    /// This has units `mass * length`.
+    pub integral_impulse: f32
+}
+
+impl PositionConstraint {
+    /// Creates a new constraint to model `contact`.
+    pub fn new(contact: &Contact) -> Self {
+        Self {
+            contact: *contact,
+            integral_impulse: 0.0
+        }
+    }
+}
+
+/// Holds information about the forces generated by a [`Contact`].
+/// Used by the solver for computation.
+#[derive(Copy, Clone, Debug)]
+struct VelocityConstraint {
     /// The contact dictating this constraint.
     pub contact: Contact,
     /// The amount of impulse applied (both normal force and friction).
@@ -223,7 +279,7 @@ struct Constraint {
     pub original_relative_velocity: Vec2
 }
 
-impl Constraint {
+impl VelocityConstraint {
     /// Creates a new constraint to model `contact`.
     pub fn new(contact: &Contact, world: &PixelWorld) -> Self {
         Self {
@@ -239,7 +295,7 @@ fn calculate_relative_velocity(contact: &Contact, world: &PixelWorld) -> Vec2 {
     let mut velocity = Vec2::ZERO;
     for (index, object) in contact.objects.into_iter().enumerate() {
         let body = &world[object];
-        let relative_position = contact.relative_position[index];
+        let relative_position = contact.local_position[index].rotate(Vec2::from_angle(body.transform.rotation));
         velocity += [-1.0, 1.0][index] * (body.velocity.linear + body.velocity.angular * relative_position.rotate(Vec2::Y));
     }
     velocity

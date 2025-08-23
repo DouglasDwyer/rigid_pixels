@@ -92,21 +92,11 @@ impl Detector {
                     transform: b_transform_new
                 }, contacts);
 
-                let a_transform_relative = Transform { position: object_a.transform.position, rotation: object_a.transform.rotation - a_transform_new.rotation }
-                    .to_matrix();
-                let b_transform_relative = Transform { position: object_b.transform.position, rotation: object_b.transform.rotation - b_transform_new.rotation }
-                    .to_matrix();
-
-                for contact in &mut contacts[start_i..] {
-                    contact.separation += contact.normal.dot(b_transform_relative.transform_point2(contact.relative_position[1])
-                        - a_transform_relative.transform_point2(contact.relative_position[0]));
-                }
-
                 if i != 0 {
                     let mut clear_i = start_i;
                     while clear_i < contacts.len() {
                         let contact = &contacts[clear_i];
-                        if contacts[initial_i..clear_i].iter().any(|x| x.id() == contact.id()) || contact.separation < -TUNNEL_THRESHOLD_DISTANCE {
+                        if contacts[initial_i..clear_i].iter().any(|x| x.id() == contact.id()) || contact.separation(world) < -TUNNEL_THRESHOLD_DISTANCE {
                             contacts.remove(clear_i);
                         }
                         else {
@@ -189,16 +179,19 @@ impl Detector {
                     }
                     
                     let contact_point = b_pixel_position - 0.5 * delta;
-                    let separation = -((normal.signum() - delta) / normal).min_element();
+                    let penetration = ((normal.signum() - delta) / normal).min_element();
 
                     let world_point = a_to_world_space.transform_point2(contact_point);
 
                     contacts.push(Contact {
                         objects: [a.id, b.id],
                         pixel_position: [position, corner],
-                        relative_position: [world_point - a.transform.position, world_point - b.transform.position],
+                        local_position: [
+                            a.transform.to_matrix().inverse().transform_point2(world_point),
+                            b.transform.to_matrix().inverse().transform_point2(world_point)
+                        ],
                         material: PixelMaterial::mix(a.body.material(), b.body.material()),
-                        separation,
+                        penetration,
                         normal: a_to_world_space.transform_vector2(normal),
                         position: world_point
                     });

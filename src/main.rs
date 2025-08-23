@@ -110,12 +110,13 @@ pub struct Contact {
     pub objects: [ObjectId; 2],
     /// The position of each pixel involved in the collision. 
     pub pixel_position: [UVec2; 2],
-    /// The offset from each object's origin to [`Self::position`].
-    pub relative_position: [Vec2; 2],
+    /// The offset from each object's origin to the contact in local space.
+    pub local_position: [Vec2; 2],
     /// The material properties at the contact.
     pub material: PixelMaterial,
-    /// The amount of distance between the objects. Negative when the objects *are* overlapping.
-    pub separation: f32,
+    /// The required distance (projected along the normal vector)
+    /// between the contact point on B and the contact point on A.
+    pub penetration: f32,
     /// The normal (in world space) of object `0`'s surface.
     pub normal: Vec2,
     /// The position of the contact in world space.
@@ -128,12 +129,19 @@ impl Contact {
         ContactId { objects: self.objects, pixel_position: self.pixel_position }
     }
 
+    /// Computes the current displacement of the contacts along the normal axis,
+    /// relative to the required `penetration` for this contact.
+    pub fn separation(&self, world: &PixelWorld) -> f32 {
+        self.normal.dot(world[self.objects[1]].transform * self.local_position[1]
+            - world[self.objects[0]].transform * self.local_position[0]) - self.penetration        
+    }
+
     /// Swaps the order of the objects involved in the collision.
     pub fn swap_objects(&self) -> Self {
         Self {
             objects: [self.objects[1], self.objects[0]],
             pixel_position: [self.pixel_position[1], self.pixel_position[0]],
-            relative_position: [self.relative_position[1], self.relative_position[0]],
+            local_position: [self.local_position[1], self.local_position[0]],
             normal: -self.normal,
             ..*self
         }
@@ -153,14 +161,16 @@ pub struct ContactId {
 #[macroquad::main("Rigid pixels")]
 async fn main() {
     let mut simulation = Simulation::new(PhysicsEngine {
+        //detector: Detector::new(DetectorKind::Naive),
         detector: Detector::new(DetectorKind::Speculative { include_external_forces: true, mode: SpeculativeStepMode::Midpoint }),
         solver: Solver::SequentialImpulse(SequentialImpulse::new(SolverConfig {
-            baumgarte: 0.2,
-            iterations: 8,
+            baumgarte: 0.0,
+            position_iterations: 8,
+            velocity_iterations: 8,
             warm_starting: true
         })),
         delta_time: 0.015
-    }, get_time(), scene::box_pyramid());
+    }, get_time(), scene::upside_down_box_pyramid());
 
     loop {
         simulation.update(get_time());

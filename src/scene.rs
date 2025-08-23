@@ -10,6 +10,8 @@ TODO:
   > Position constraint
   > Rotation constraint
   > See about force limits? How to deal with friction?
+- Use caching and projection rather than computing things like closing velocity from scratch? Though that DOES go through EVERY contact
+  (which maybe is just objectively worse, OR could store like list of contacts per body and go through)
 - Try other solvers
 */
 
@@ -21,8 +23,8 @@ const SMOOTH_HARD: PixelMaterial = PixelMaterial {
 
 /// A surface with some friction and moderate bounciness.
 const ROUGH_SOFT: PixelMaterial = PixelMaterial {
-    friction: 0.2,
-    restitution: 0.2
+    friction: 0.3,
+    restitution: 0.0
 };
 
 /// A simple world with two boxes for testing collision detection.
@@ -65,8 +67,8 @@ pub fn box_pyramid() -> PixelWorld {
 pub fn upside_down_box_pyramid() -> PixelWorld {
     let mut world = PixelWorld::default();
     world.insert(create_floor1(ROUGH_SOFT));
-    world.insert(create_box(GOLD, ROUGH_SOFT, Transform { position: vec2(8.25, 19.25), rotation: 0.0 }, uvec2(12, 5)));
-    world.insert(create_box(GOLD, ROUGH_SOFT, Transform { position: vec2(8.5, 14.5), rotation: 0.0 }, uvec2(8, 3)));
+    world.insert(create_box(GOLD, ROUGH_SOFT, Transform { position: vec2(8.25, 17.25), rotation: 0.0 }, uvec2(12, 5)));
+    world.insert(create_box(GOLD, ROUGH_SOFT, Transform { position: vec2(8.5, 12.5), rotation: 0.0 }, uvec2(8, 3)));
     world.insert(create_box(GOLD, ROUGH_SOFT, Transform { position: vec2(9.0, 8.5), rotation: 0.0 }, uvec2(5, 2)));
     world
 }
