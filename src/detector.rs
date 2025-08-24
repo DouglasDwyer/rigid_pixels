@@ -3,7 +3,7 @@ use macroquad::prelude::*;
 use std::ops::*;
 
 /// The theoretical distance an object may move before tunneling occurs.
-const TUNNEL_THRESHOLD_DISTANCE: f32 = 0.5;
+const TUNNEL_THRESHOLD_DISTANCE: f32 = 0.4;
 
 /// Determines how collision detection will be performed.
 #[derive(Copy, Clone, Debug)]

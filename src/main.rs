@@ -166,13 +166,13 @@ async fn main() {
         detector: Detector::new(DetectorKind::Speculative { include_external_forces: true, mode: SpeculativeStepMode::Midpoint }),
         solver: Solver::SequentialImpulse(SequentialImpulse::new(SolverConfig {
             baumgarte: 0.2,
-            substeps: 6,
-            velocity_iterations: 1,
-            relaxation_iterations: 1,
+            substeps: 5,
+            velocity_iterations: 3,
+            relaxation_iterations: 0,
             warm_starting: true
         })),
         delta_time: 0.015
-    }, get_time(), scene::circle_rotation_jitter());
+    }, get_time(), scene::upside_down_box_pyramid());
 
     loop {
         simulation.update(get_time());
@@ -187,6 +187,8 @@ Improvements:
   > Jitter on boxes is muched reduced
 - Use warm starting to increase stability
   > Improvement with big circle lying on ground; previously jittered but now does not
+  > Box stack slides without warm starting
+  > Tried scaling warm starting by some factor (like 0.8), but this led to sliding. Doesn't seem to be worth it.
 - Speculative contacts can work for CCD. External forces NEED to be included in the objects' speculative trajectory.
   > With naive collision detection, falling objects or dragging could cause clipping
   > Without external forces, dragging could clip objects through floor
@@ -198,23 +200,34 @@ Improvements:
   > The impulse vector must be clipped AFTER dynamic friction is calculated
 - Linear slop is necessary to ensure the collision detector doesn't miss contacts that are close together
   > Speculative collisions alone did not fix the issue of occasionally missing contacts
+- TGS/Baumgarte performs better than pure PGS or NGS on the upside-down pyramid
+  > This is using 5 substeps w/ 3 velocity iterations apiece
+  > There is some bounciness to the collisions but the stack is otherwise stable
+  > The tumbler works as well
+  > Apply restitution once on the final impulses output by the solver
 
 Things to think about:
-- The box_pyramid is now stable but upside_down_box_pyramid is unstable. Reducing Baumgarte to something small increases stability.
-  Turning off warm starting also drastically improves things.
-  > The combination of Baumgarte and warm starting is jittery (could this be because the warm starting force includes the Baumgarte term)?
-  > NGS and Baumgarte perform similarly here. Both are better than the previous engine; the stack just fell apart there.
+- Relaxation is bugged w.r.t speculative contacts! During relaxation, we try to make the velocity ZERO. But in combination with substepping,
+  this means that the velocity goes to zero far too early, and artifacts appear.
+  > Turning off relaxation fixes the problem.
+  > Is there another way to deal with energetic Baumgarte stabilization?
+
+- NGS does not do well with the box stack or tumbler
+  > Warm starting makes it jittery
   > Removing friction/restitution doesn't seem to help
   > Guessing that position iterations should come BEFORE integrating velocity, but Catto does it afterward?
   > NGS seems very shaky and performs worse than Baumgarte stabilization for the tumbler. Is there an error in my math?
     Could try seeing how well Solver2D does with this case. Could also try using my solver w/ an existing 2D collision detection library (like Rapier).
-  > Will switching to TGS solve this?
+
 - Corner normal handling is weird. How does Teardown do it?
-  > Just discard any corner-corner normals that conflict?
+  > Just discard any corner-corner normals that conflict? This led to lots of jittering. Not sure why.
+  > I also tried using cardinal-only normals. This led to some collisions being missed. I will need to revisit this.
+  
+- The Tumbler disappeared once. Need to add NaN panics and track that down.
+
 - There were NaNs in collision detection when voxels clipped through the opposite side of an edge. How did the 3D engine handle this?
+
 - Box2D tracks something called totalNormalImpulse to check whether any impulse was EVER generated for a speculative contact.
   It prevents restitution from being applied to contacts without it. How important is this?
-- The Tumbler disappeared once. Need to add NaN panics and track that down.
-- Is substepping equivalent to running the whole solver six times without redoing col. detect.?
 
 */

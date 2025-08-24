@@ -29,11 +29,12 @@ impl SequentialImpulse {
 
     /// Solves all contacts and joints, then updates the position/velocity of every object in `world`.
     pub fn solve(&mut self, contacts: &[Contact], world: &mut PixelWorld, delta_time: f32) {
+        let mut constraints = contacts.iter().map(|x| VelocityConstraint::new(x, world, &self.force_cache))
+            .collect::<Vec<_>>();
+
         let substep_time = delta_time / self.config.substeps as f32;
         for _ in 0..self.config.substeps {
-            let mut constraints = contacts.iter().map(|x| VelocityConstraint::new(x, world)).collect::<Vec<_>>();
-            self.warm_start_constraints(&mut constraints, world);
-
+            self.apply_impulses(&mut constraints, world);
             integrate_external_forces(world, substep_time);
             
             for _ in 0..self.config.velocity_iterations {
@@ -49,13 +50,13 @@ impl SequentialImpulse {
                     self.solve_velocity(constraint, world, substep_time, false);
                 }
             }
-            
-            self.cache_constraint_forces(&constraints);
         }
+        
+        self.cache_constraint_forces(&constraints);
 
-        /*for constraint in &mut constraints {
+        for constraint in &mut constraints {
             self.solve_restitution(constraint, world);
-        }*/
+        }
     }
 
     /// Applies restitution to a constraint. Solves for the normal impulse that makes
@@ -77,6 +78,7 @@ impl SequentialImpulse {
         Self::apply_impulse(constraint, world, delta_impulse * contact.normal);
     }
 
+        /*
     /// Solves a single position constraint, updating the total applied integral impulse and
     /// the positions of the bodies in the `world`.
     fn solve_position(&self, constraint: &mut PositionConstraint, world: &mut PixelWorld) {
@@ -100,7 +102,6 @@ impl SequentialImpulse {
             object.transform.rotation += sign * object.body.inverse_inertia_tensor() * integral_impulsive_torque;
         }
         
-        /*
         let contact = &constraint.contact;
         let relative_velocity = Self::relative_velocity(contact, world);
         let velocity_per_impulse = Self::velocity_per_impulse(contact, world);
@@ -123,9 +124,9 @@ impl SequentialImpulse {
                 linear: sign * object.body.inverse_mass() * impulse,
                 angular: sign * object.body.inverse_inertia_tensor() * impulsive_torque
             };
-        }        
+        }    
+    }    
          */
-    }
 
     /// Solves a single velocity constraint, updating the total applied impulse and the velocity
     /// of the bodies in the `world`.
@@ -175,13 +176,13 @@ impl SequentialImpulse {
         }
     }
 
-    /// Reapplies constraint forces from the previous tick to improve convergence.
-    fn warm_start_constraints(&self, constraints: &mut [VelocityConstraint], world: &mut PixelWorld) {
+    /// Applies the total impulse stored in each constraint to the objects in the world.
+    fn apply_impulses(&self, constraints: &mut [VelocityConstraint], world: &mut PixelWorld) {
         if self.config.warm_starting {
             for constraint in constraints {
-                if let Some(impulse) = self.force_cache.get(&constraint.contact.id()).copied() {
-                    Self::apply_impulse(constraint, world, impulse);
-                }
+                let impulse = constraint.impulse;
+                constraint.impulse = Vec2::ZERO;
+                Self::apply_impulse(constraint, world, impulse);
             }
         }
     }
@@ -273,10 +274,10 @@ struct VelocityConstraint {
 
 impl VelocityConstraint {
     /// Creates a new constraint to model `contact`.
-    pub fn new(contact: &Contact, world: &PixelWorld) -> Self {
+    pub fn new(contact: &Contact, world: &PixelWorld, impulse_cache: &HashMap<ContactId, Vec2>) -> Self {
         Self {
             contact: *contact,
-            impulse: Vec2::ZERO,
+            impulse: impulse_cache.get(&contact.id()).copied().unwrap_or_default(),
             original_relative_velocity: calculate_relative_velocity(&contact, world),
         }
     }
