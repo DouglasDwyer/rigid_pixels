@@ -44,6 +44,15 @@ impl SequentialImpulse {
             }
 
             integrate_velocities(world, substep_time);
+
+            let mut positions = contacts.iter().map(PositionConstraint::new)
+                .collect::<Vec<_>>();
+
+            for _ in 0..self.config.position_iterations {
+                for constraint in &mut positions {
+                    self.solve_position(constraint, world);
+                }
+            }
                 
             for _ in 0..self.config.relaxation_iterations {
                 for constraint in &mut constraints {
@@ -78,7 +87,6 @@ impl SequentialImpulse {
         Self::apply_impulse(constraint, world, delta_impulse * contact.normal);
     }
 
-        /*
     /// Solves a single position constraint, updating the total applied integral impulse and
     /// the positions of the bodies in the `world`.
     fn solve_position(&self, constraint: &mut PositionConstraint, world: &mut PixelWorld) {
@@ -86,8 +94,9 @@ impl SequentialImpulse {
         let displacement_per_integral_impulse = Self::velocity_per_impulse(contact, world);
 
         let normal_displacement_per_integral_impulse = displacement_per_integral_impulse * contact.normal;
-        let required_displacement = (contact.separation(world) + Self::LINEAR_SLOP);
-        let required_integral_impulse = -0.2 * required_displacement / normal_displacement_per_integral_impulse.dot(contact.normal);
+        let required_displacement = contact.separation(world) + Self::LINEAR_SLOP;
+        let required_integral_impulse = -(self.config.position_baumgarte / self.config.substeps as f32) * required_displacement
+            / normal_displacement_per_integral_impulse.dot(contact.normal);
 
         let total_integral_impulse = (constraint.integral_impulse + required_integral_impulse).max(0.0);
         let delta_integral_impulse = (total_integral_impulse - constraint.integral_impulse) * contact.normal;
@@ -102,6 +111,7 @@ impl SequentialImpulse {
             object.transform.rotation += sign * object.body.inverse_inertia_tensor() * integral_impulsive_torque;
         }
         
+        /*
         let contact = &constraint.contact;
         let relative_velocity = Self::relative_velocity(contact, world);
         let velocity_per_impulse = Self::velocity_per_impulse(contact, world);
@@ -124,9 +134,8 @@ impl SequentialImpulse {
                 linear: sign * object.body.inverse_mass() * impulse,
                 angular: sign * object.body.inverse_inertia_tensor() * impulsive_torque
             };
-        }    
-    }    
-         */
+        }     */
+    }
 
     /// Solves a single velocity constraint, updating the total applied impulse and the velocity
     /// of the bodies in the `world`.
@@ -213,7 +222,7 @@ impl SequentialImpulse {
     fn bias_velocity(&self, contact: &Contact, world: &PixelWorld, delta_time: f32) -> Vec2 {
         let separation = contact.separation(world);
         let magnitude = if separation < 0.0 {
-            (self.config.baumgarte / self.config.substeps as f32) * (separation + Self::LINEAR_SLOP).min(0.0) / delta_time
+            (self.config.velocity_baumgarte / self.config.substeps as f32) * (separation + Self::LINEAR_SLOP).min(0.0) / delta_time
         }
         else {
             separation / delta_time

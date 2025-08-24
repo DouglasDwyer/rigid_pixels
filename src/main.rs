@@ -165,14 +165,16 @@ async fn main() {
     let mut simulation = Simulation::new(PhysicsEngine {
         detector: Detector::new(DetectorKind::Speculative { include_external_forces: true, mode: SpeculativeStepMode::Midpoint }),
         solver: Solver::SequentialImpulse(SequentialImpulse::new(SolverConfig {
-            baumgarte: 0.2,
-            substeps: 5,
-            velocity_iterations: 3,
+            position_baumgarte: 0.2,
+            position_iterations: 0,
+            velocity_baumgarte: 0.2,
+            velocity_iterations: 2,
             relaxation_iterations: 0,
+            substeps: 6,
             warm_starting: true
         })),
         delta_time: 0.015
-    }, get_time(), scene::upside_down_box_pyramid());
+    }, get_time(), scene::single_box());
 
     loop {
         simulation.update(get_time());
@@ -205,19 +207,13 @@ Improvements:
   > There is some bounciness to the collisions but the stack is otherwise stable
   > The tumbler works as well
   > Apply restitution once on the final impulses output by the solver
+  > NGS does not seem to be a signficant improvement; TGS is the big win
 
 Things to think about:
 - Relaxation is bugged w.r.t speculative contacts! During relaxation, we try to make the velocity ZERO. But in combination with substepping,
   this means that the velocity goes to zero far too early, and artifacts appear.
   > Turning off relaxation fixes the problem.
   > Is there another way to deal with energetic Baumgarte stabilization?
-
-- NGS does not do well with the box stack or tumbler
-  > Warm starting makes it jittery
-  > Removing friction/restitution doesn't seem to help
-  > Guessing that position iterations should come BEFORE integrating velocity, but Catto does it afterward?
-  > NGS seems very shaky and performs worse than Baumgarte stabilization for the tumbler. Is there an error in my math?
-    Could try seeing how well Solver2D does with this case. Could also try using my solver w/ an existing 2D collision detection library (like Rapier).
 
 - Corner normal handling is weird. How does Teardown do it?
   > Just discard any corner-corner normals that conflict? This led to lots of jittering. Not sure why.

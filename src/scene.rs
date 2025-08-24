@@ -2,12 +2,12 @@ use crate::*;
 
 /*
 TODO:
-- NGS
 - Joints
   > Position constraint
   > Rotation constraint
   > See about force limits? How to deal with friction?
 - Research normals issue
+- Relaxation one more time
 - Use caching and projection rather than computing things like closing velocity from scratch? Though that DOES go through EVERY contact
   (which maybe is just objectively worse, OR could store like list of contacts per body and go through)
 */
@@ -21,7 +21,7 @@ const SMOOTH_HARD: PixelMaterial = PixelMaterial {
 /// A surface with some friction and moderate bounciness.
 const ROUGH_SOFT: PixelMaterial = PixelMaterial {
     friction: 0.3,
-    restitution: 0.3
+    restitution: 0.9
 };
 
 /// A simple world with two boxes for testing collision detection.

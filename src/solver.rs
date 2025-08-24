@@ -9,13 +9,17 @@ mod si;
 /// Determines how the physics solver will behave.
 #[derive(Copy, Clone, Debug)]
 pub struct SolverConfig {
-    /// The Baumgarte factor to apply over the entire frame.
-    pub baumgarte: f32,
+    /// The Baumgarte factor for position to apply over the entire tick.
+    pub position_baumgarte: f32,
+    /// The number of position-correcting (NGS) iterations to perform.
+    pub position_iterations: u32,
     /// The number of extra velocity iterations to perform *without*
     /// any Baumgarte stabilization. This removes extra energy from the system.
     pub relaxation_iterations: u32,
     /// The number of solver (TGS) iterations to perform.
     pub substeps: u32,
+    /// The Baumgarte factor for velocity to apply over the entire tick.
+    pub velocity_baumgarte: f32,
     /// The number of velocity-correcting iterations to perform.
     pub velocity_iterations: u32,
     /// Whether to cache constraint forces and use them as the initial guess next frame.
