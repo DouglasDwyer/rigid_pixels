@@ -212,7 +212,7 @@ impl SequentialImpulse {
     fn bias_velocity(&self, contact: &Contact, world: &PixelWorld, delta_time: f32) -> Vec2 {
         let separation = contact.separation(world);
         let magnitude = if separation < 0.0 {
-            self.config.baumgarte * (separation + Self::LINEAR_SLOP).min(0.0) / delta_time
+            (self.config.baumgarte / self.config.substeps as f32) * (separation + Self::LINEAR_SLOP).min(0.0) / delta_time
         }
         else {
             separation / delta_time

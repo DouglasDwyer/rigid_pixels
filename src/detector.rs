@@ -3,7 +3,7 @@ use macroquad::prelude::*;
 use std::ops::*;
 
 /// The theoretical distance an object may move before tunneling occurs.
-const TUNNEL_THRESHOLD_DISTANCE: f32 = 0.3333;
+const TUNNEL_THRESHOLD_DISTANCE: f32 = 0.5;
 
 /// Determines how collision detection will be performed.
 #[derive(Copy, Clone, Debug)]
@@ -121,25 +121,29 @@ impl Detector {
 
     /// Gathers all contacts between `a` and `b`.
     fn gather_contacts(a: DetectorObject, b: DetectorObject, contacts: &mut Vec<Contact>) {
-        Self::gather_corner_contacts(a, b, contacts, true);
+        Self::gather_corner_contacts(a, b, contacts);
 
         let start_i = contacts.len();
-        Self::gather_corner_contacts(b, a, contacts, false);
+        Self::gather_corner_contacts(b, a, contacts);
+
+        // Hack: if objects are not swapped, then updating the separation doesn't work in update_speculative
+        // Make this less dumb!
+        for contact in &mut contacts[start_i..] {
+            *contact = contact.swap_objects();
+        }
     }
 
     /// Gathers all contact constraints produced by corners of object `a` colliding with `b`.
-    fn gather_corner_contacts(a: DetectorObject, b: DetectorObject, contacts: &mut Vec<Contact>, allow_corner_corner: bool) {
+    fn gather_corner_contacts(a: DetectorObject, b: DetectorObject, contacts: &mut Vec<Contact>) {
         let a_to_world_space = a.body.world_grid_matrix(a.transform);
         let b_to_a = a_to_world_space.inverse() * b.body.world_grid_matrix(b.transform);
 
         for corner in b.body.corners().iter().copied() {
-            let mut any_edges = false;
+            let mut closest_edge_sq = None;
             let start_i = contacts.len();
 
-            let b_neighbors = b.body.neighbors(corner);
             let b_pixel_position = b_to_a.transform_point2(corner.as_vec2() + Vec2::splat(0.5));
             let min_pixel = (b_pixel_position - Vec2::splat(0.5)).floor().as_ivec2().as_uvec2();
-
             for offset in [UVec2::ZERO, UVec2::X, UVec2::Y, UVec2::ONE] {
                 let position = min_pixel + offset;
                 if a.body.grid().get_or_empty(position) {
@@ -151,32 +155,29 @@ impl Detector {
                     }
                     let is_edge = neighbors.kind() != PixelKind::Corner;
                     if is_edge {
-                        if !any_edges {
+                        let delta_len_sq = delta.length_squared();
+                        if closest_edge_sq.is_none_or(|x| delta_len_sq < x) {
                             contacts.truncate(start_i);
-                            any_edges = true;
+                            closest_edge_sq = Some(delta_len_sq);
+                        }
+                        else {
+                            continue;
                         }
                     }
-                    else if any_edges {
+                    else if closest_edge_sq.is_some() {
                         continue;
                     }
 
-                    
-                    let normal = Self::clamp_normal(delta, neighbors);
+                    let lower = BVec2::new(neighbors.contains(PixelNeighbors::LEFT), neighbors.contains(PixelNeighbors::DOWN));
+                    let upper = BVec2::new(neighbors.contains(PixelNeighbors::RIGHT), neighbors.contains(PixelNeighbors::UP));
+                    let clamped_lower = Vec2::select(lower, delta.max(Vec2::ZERO), delta);
+                    let clamped_upper = Vec2::select(upper, clamped_lower.min(Vec2::ZERO), clamped_lower);
+                    let normal = clamped_upper.normalize_or_zero();
+
                     if normal == Vec2::ZERO {
                         continue;
                     }
                     
-                    /*if !is_edge && !allow_corner_corner {
-                        continue;
-                    }*/
-
-                    if !is_edge {
-                        let normal_in_b = -normal.rotate(Vec2::from_angle(-b.transform.rotation + a.transform.rotation));
-                        if normal_in_b != Self::clamp_normal(normal_in_b, b_neighbors) {
-                            continue;
-                        }
-                    }
-
                     let contact_point = b_pixel_position - 0.5 * delta;
                     let penetration = ((normal.signum() - delta) / normal).min_element();
 
@@ -194,54 +195,6 @@ impl Detector {
                         normal: a_to_world_space.transform_vector2(normal),
                         position: world_point
                     });
-                }
-            }
-        }
-    }
-
-    fn clamp_normal(normal: Vec2, neighbors: PixelNeighbors) -> Vec2 {
-        let lower = BVec2::new(neighbors.contains(PixelNeighbors::LEFT), neighbors.contains(PixelNeighbors::DOWN));
-        let upper = BVec2::new(neighbors.contains(PixelNeighbors::RIGHT), neighbors.contains(PixelNeighbors::UP));
-        let clamped_lower = Vec2::select(lower, normal.max(Vec2::ZERO), normal);
-        let clamped_upper = Vec2::select(upper, clamped_lower.min(Vec2::ZERO), clamped_lower);
-        clamped_upper.normalize_or_zero()
-    }
-
-    fn greatest_axis_normal(delta: Vec2, neighbors: PixelNeighbors) -> Vec2 {
-        let abs_normal = delta.abs();
-        if abs_normal.x < abs_normal.y {
-            if delta.y < 0.0 {
-                if neighbors.contains(PixelNeighbors::DOWN) {
-                    Vec2::ZERO
-                }
-                else {
-                    -Vec2::Y
-                }
-            }
-            else {
-                if neighbors.contains(PixelNeighbors::UP) {
-                    Vec2::ZERO
-                }
-                else {
-                    Vec2::Y
-                }
-            }
-        }
-        else {
-            if delta.x < 0.0 {
-                if neighbors.contains(PixelNeighbors::LEFT) {
-                    Vec2::ZERO
-                }
-                else {
-                    -Vec2::X
-                }
-            }
-            else {
-                if neighbors.contains(PixelNeighbors::RIGHT) {
-                    Vec2::ZERO
-                }
-                else {
-                    Vec2::X
                 }
             }
         }

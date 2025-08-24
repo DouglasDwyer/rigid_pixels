@@ -163,23 +163,12 @@ pub struct ContactId {
 async fn main() {
     set_window_size(1000, 1000);
     let mut simulation = Simulation::new(PhysicsEngine {
-        //detector: Detector::new(DetectorKind::Naive),
         detector: Detector::new(DetectorKind::Speculative { include_external_forces: true, mode: SpeculativeStepMode::Midpoint }),
-        /*solver: Solver::SequentialImpulse(SequentialImpulse::new(SolverConfig {
-            baumgarte: 0.2,
-            position_iterations: 0,
-            substeps: 1,
-            velocity_iterations: 2,
-            relaxation_iterations: 0,
-            warm_starting: true
-        })),
-        delta_time: 0.015 / 8.0*/
         solver: Solver::SequentialImpulse(SequentialImpulse::new(SolverConfig {
             baumgarte: 0.2,
-            position_iterations: 0,
-            substeps: 1,
-            velocity_iterations: 8,
-            relaxation_iterations: 0,
+            substeps: 6,
+            velocity_iterations: 1,
+            relaxation_iterations: 1,
             warm_starting: true
         })),
         delta_time: 0.015

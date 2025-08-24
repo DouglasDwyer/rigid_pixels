@@ -9,10 +9,8 @@ mod si;
 /// Determines how the physics solver will behave.
 #[derive(Copy, Clone, Debug)]
 pub struct SolverConfig {
-    /// The Baumgarte factor to apply.
+    /// The Baumgarte factor to apply over the entire frame.
     pub baumgarte: f32,
-    /// The number of position-correcting (NGS) iterations to perform.
-    pub position_iterations: u32,
     /// The number of extra velocity iterations to perform *without*
     /// any Baumgarte stabilization. This removes extra energy from the system.
     pub relaxation_iterations: u32,
