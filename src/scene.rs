@@ -101,7 +101,7 @@ pub fn weird_normals() -> PixelWorld {
 pub fn circle_rotation_jitter() -> PixelWorld {
     let mut world = PixelWorld::default();
     world.insert(create_floor2(SMOOTH_HARD));
-    world.insert(create_circle(ORANGE, SMOOTH_HARD, Transform { position: vec2(-30.0, -2.5), rotation: 0.2 }, 9.0));
+    world.insert(create_circle(ORANGE, SMOOTH_HARD, Transform { position: vec2(-30.0, 10.5), rotation: 0.2 }, 9.0));
     world
 }
 

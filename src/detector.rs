@@ -3,7 +3,7 @@ use macroquad::prelude::*;
 use std::ops::*;
 
 /// The theoretical distance an object may move before tunneling occurs.
-const TUNNEL_THRESHOLD_DISTANCE: f32 = 0.3;
+const TUNNEL_THRESHOLD_DISTANCE: f32 = 0.3333;
 
 /// Determines how collision detection will be performed.
 #[derive(Copy, Clone, Debug)]
@@ -161,7 +161,7 @@ impl Detector {
                     }
 
                     
-                    let normal = Self::greatest_axis_normal(delta, neighbors);
+                    let normal = Self::clamp_normal(delta, neighbors);
                     if normal == Vec2::ZERO {
                         continue;
                     }
@@ -241,7 +241,6 @@ impl Detector {
                     Vec2::ZERO
                 }
                 else {
-                    println!("GRAHHH {delta:?} {neighbors:?}");
                     Vec2::X
                 }
             }

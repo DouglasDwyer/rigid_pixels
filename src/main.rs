@@ -165,16 +165,25 @@ async fn main() {
     let mut simulation = Simulation::new(PhysicsEngine {
         //detector: Detector::new(DetectorKind::Naive),
         detector: Detector::new(DetectorKind::Speculative { include_external_forces: true, mode: SpeculativeStepMode::Midpoint }),
+        /*solver: Solver::SequentialImpulse(SequentialImpulse::new(SolverConfig {
+            baumgarte: 0.2,
+            position_iterations: 0,
+            substeps: 1,
+            velocity_iterations: 2,
+            relaxation_iterations: 0,
+            warm_starting: true
+        })),
+        delta_time: 0.015 / 8.0*/
         solver: Solver::SequentialImpulse(SequentialImpulse::new(SolverConfig {
             baumgarte: 0.2,
             position_iterations: 0,
             substeps: 1,
-            velocity_iterations: 1,
-            relaxation_iterations: 1,
+            velocity_iterations: 8,
+            relaxation_iterations: 0,
             warm_starting: true
         })),
-        delta_time: 0.015 / 8.0
-    }, get_time(), scene::upside_down_box_pyramid());
+        delta_time: 0.015
+    }, get_time(), scene::circle_rotation_jitter());
 
     loop {
         simulation.update(get_time());

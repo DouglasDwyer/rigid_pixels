@@ -29,30 +29,33 @@ impl SequentialImpulse {
 
     /// Solves all contacts and joints, then updates the position/velocity of every object in `world`.
     pub fn solve(&mut self, contacts: &[Contact], world: &mut PixelWorld, delta_time: f32) {
-        let mut constraints = contacts.iter().map(|x| VelocityConstraint::new(x, world)).collect::<Vec<_>>();
-        self.warm_start_constraints(&mut constraints, world);
+        let substep_time = delta_time / self.config.substeps as f32;
+        for _ in 0..self.config.substeps {
+            let mut constraints = contacts.iter().map(|x| VelocityConstraint::new(x, world)).collect::<Vec<_>>();
+            self.warm_start_constraints(&mut constraints, world);
 
-        integrate_external_forces(world, delta_time);
-        
-        for _ in 0..self.config.velocity_iterations {
-            for constraint in &mut constraints {
-                self.solve_velocity(constraint, world, delta_time, true);
-            }
-        }
-
-        integrate_velocities(world, delta_time);
+            integrate_external_forces(world, substep_time);
             
-        for _ in 0..self.config.relaxation_iterations {
-            for constraint in &mut constraints {
-                self.solve_velocity(constraint, world, delta_time, false);
+            for _ in 0..self.config.velocity_iterations {
+                for constraint in &mut constraints {
+                    self.solve_velocity(constraint, world, substep_time, true);
+                }
             }
-        }
-        
-        self.cache_constraint_forces(&constraints);
 
-        for constraint in &mut constraints {
-            self.solve_restitution(constraint, world);
+            integrate_velocities(world, substep_time);
+                
+            for _ in 0..self.config.relaxation_iterations {
+                for constraint in &mut constraints {
+                    self.solve_velocity(constraint, world, substep_time, false);
+                }
+            }
+            
+            self.cache_constraint_forces(&constraints);
         }
+
+        /*for constraint in &mut constraints {
+            self.solve_restitution(constraint, world);
+        }*/
     }
 
     /// Applies restitution to a constraint. Solves for the normal impulse that makes
