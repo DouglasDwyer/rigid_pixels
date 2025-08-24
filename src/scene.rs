@@ -23,7 +23,7 @@ const SMOOTH_HARD: PixelMaterial = PixelMaterial {
 /// A surface with some friction and moderate bounciness.
 const ROUGH_SOFT: PixelMaterial = PixelMaterial {
     friction: 0.3,
-    restitution: 0.0
+    restitution: 0.3
 };
 
 /// A simple world with two boxes for testing collision detection.
@@ -170,7 +170,7 @@ fn create_floor1(material: PixelMaterial) -> PixelObject {
         grid.set(uvec2(x, 5), true);
     }
 
-    let transform = Transform { position: -0.5 * grid.resolution().x as f32 * Vec2::X, rotation: 0.0 };
+    let transform = Transform { position: Vec2::ZERO, rotation: 0.0 };
     let mut body = PixelBody::new(grid, material, true, true);
 
     PixelObject::new(body, DARKGRAY, transform)
@@ -198,7 +198,7 @@ fn create_floor2(material: PixelMaterial) -> PixelObject {
 
     grid.set(uvec2(239, 10), true);
 
-    let transform = Transform { position: -0.5 * grid.resolution().as_vec2(), rotation: 0.0 };
+    let transform = Transform { position: Vec2::ZERO, rotation: 0.0 };
     let mut body = PixelBody::new(grid, material, true, true);
 
     PixelObject::new(body, DARKGRAY, transform)

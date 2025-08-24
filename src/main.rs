@@ -1,6 +1,7 @@
 #![allow(unused)]
 
 use egui_macroquad::egui;
+use macroquad::miniquad::window::set_window_size;
 use macroquad::prelude::*;
 use self::detector::*;
 use self::force::*;
@@ -160,17 +161,20 @@ pub struct ContactId {
 /// Executes the main loop.
 #[macroquad::main("Rigid pixels")]
 async fn main() {
+    set_window_size(1000, 1000);
     let mut simulation = Simulation::new(PhysicsEngine {
         //detector: Detector::new(DetectorKind::Naive),
         detector: Detector::new(DetectorKind::Speculative { include_external_forces: true, mode: SpeculativeStepMode::Midpoint }),
         solver: Solver::SequentialImpulse(SequentialImpulse::new(SolverConfig {
             baumgarte: 0.2,
             position_iterations: 0,
-            velocity_iterations: 8,
+            substeps: 1,
+            velocity_iterations: 1,
+            relaxation_iterations: 1,
             warm_starting: true
         })),
-        delta_time: 0.015
-    }, get_time(), scene::tumbler());
+        delta_time: 0.015 / 8.0
+    }, get_time(), scene::upside_down_box_pyramid());
 
     loop {
         simulation.update(get_time());
@@ -199,13 +203,20 @@ Improvements:
 
 Things to think about:
 - The box_pyramid is now stable but upside_down_box_pyramid is unstable. Reducing Baumgarte to something small increases stability.
+  Turning off warm starting also drastically improves things.
+  > The combination of Baumgarte and warm starting is jittery (could this be because the warm starting force includes the Baumgarte term)?
   > NGS and Baumgarte perform similarly here. Both are better than the previous engine; the stack just fell apart there.
+  > Removing friction/restitution doesn't seem to help
+  > Guessing that position iterations should come BEFORE integrating velocity, but Catto does it afterward?
   > NGS seems very shaky and performs worse than Baumgarte stabilization for the tumbler. Is there an error in my math?
+    Could try seeing how well Solver2D does with this case. Could also try using my solver w/ an existing 2D collision detection library (like Rapier).
   > Will switching to TGS solve this?
 - Corner normal handling is weird. How does Teardown do it?
   > Just discard any corner-corner normals that conflict?
 - There were NaNs in collision detection when voxels clipped through the opposite side of an edge. How did the 3D engine handle this?
 - Box2D tracks something called totalNormalImpulse to check whether any impulse was EVER generated for a speculative contact.
   It prevents restitution from being applied to contacts without it. How important is this?
+- The Tumbler disappeared once. Need to add NaN panics and track that down.
+- Is substepping equivalent to running the whole solver six times without redoing col. detect.?
 
 */

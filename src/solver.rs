@@ -1,10 +1,10 @@
 use crate::*;
 use std::collections::*;
 
-pub use self::sequential_impulse::*;
+pub use self::si::*;
 
 /// Implements the sequential impulse solver.
-mod sequential_impulse;
+mod si;
 
 /// Determines how the physics solver will behave.
 #[derive(Copy, Clone, Debug)]
@@ -13,6 +13,11 @@ pub struct SolverConfig {
     pub baumgarte: f32,
     /// The number of position-correcting (NGS) iterations to perform.
     pub position_iterations: u32,
+    /// The number of extra velocity iterations to perform *without*
+    /// any Baumgarte stabilization. This removes extra energy from the system.
+    pub relaxation_iterations: u32,
+    /// The number of solver (TGS) iterations to perform.
+    pub substeps: u32,
     /// The number of velocity-correcting iterations to perform.
     pub velocity_iterations: u32,
     /// Whether to cache constraint forces and use them as the initial guess next frame.
@@ -50,9 +55,7 @@ pub struct Force {
 /// Integrates the forces on all objects in the world, updating their velocities.
 fn integrate_external_forces(world: &mut PixelWorld, delta_time: f32) {
     for object in world.values_mut() {
-        let old_velocity = object.velocity;
         object.velocity = object.velocity.integrate_force(delta_time, object.forces, &object.body);
-        //println!("INTEGRATE {old_velocity:?} => {:?} ({delta_time} {:?})", object.velocity, object.forces);
     }
 }
 

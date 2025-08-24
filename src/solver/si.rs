@@ -15,7 +15,7 @@ impl SequentialImpulse {
     /// A small amount of error to maintain when solving contact constraints.
     /// This ensures that the collision detector consistently picks up on contacts
     /// even after they are initially solved.
-    const LINEAR_SLOP: f32 = 0.005;
+    const LINEAR_SLOP: f32 = 0.01;
 
     /// Creates a new sequential impulse solver.
     pub fn new(config: SolverConfig) -> Self {
@@ -30,26 +30,25 @@ impl SequentialImpulse {
     /// Solves all contacts and joints, then updates the position/velocity of every object in `world`.
     pub fn solve(&mut self, contacts: &[Contact], world: &mut PixelWorld, delta_time: f32) {
         let mut constraints = contacts.iter().map(|x| VelocityConstraint::new(x, world)).collect::<Vec<_>>();
+        self.warm_start_constraints(&mut constraints, world);
 
         integrate_external_forces(world, delta_time);
-        self.warm_start_constraints(&mut constraints, world);
         
         for _ in 0..self.config.velocity_iterations {
             for constraint in &mut constraints {
-                self.solve_velocity(constraint, world, delta_time);
+                self.solve_velocity(constraint, world, delta_time, true);
             }
         }
 
-        let mut pos_constraints = contacts.iter().map(PositionConstraint::new).collect::<Vec<_>>();
-
-        for _ in 0..self.config.position_iterations {
-            for constraint in &mut pos_constraints {
-                self.solve_position(constraint, world);
-            }
-        }
-
-        self.cache_constraint_forces(&constraints);
         integrate_velocities(world, delta_time);
+            
+        for _ in 0..self.config.relaxation_iterations {
+            for constraint in &mut constraints {
+                self.solve_velocity(constraint, world, delta_time, false);
+            }
+        }
+        
+        self.cache_constraint_forces(&constraints);
 
         for constraint in &mut constraints {
             self.solve_restitution(constraint, world);
@@ -82,8 +81,8 @@ impl SequentialImpulse {
         let displacement_per_integral_impulse = Self::velocity_per_impulse(contact, world);
 
         let normal_displacement_per_integral_impulse = displacement_per_integral_impulse * contact.normal;
-        let required_displacement = contact.separation(world) + Self::LINEAR_SLOP;
-        let required_integral_impulse = -required_displacement / normal_displacement_per_integral_impulse.dot(contact.normal);
+        let required_displacement = (contact.separation(world) + Self::LINEAR_SLOP);
+        let required_integral_impulse = -0.2 * required_displacement / normal_displacement_per_integral_impulse.dot(contact.normal);
 
         let total_integral_impulse = (constraint.integral_impulse + required_integral_impulse).max(0.0);
         let delta_integral_impulse = (total_integral_impulse - constraint.integral_impulse) * contact.normal;
@@ -127,9 +126,9 @@ impl SequentialImpulse {
 
     /// Solves a single velocity constraint, updating the total applied impulse and the velocity
     /// of the bodies in the `world`.
-    fn solve_velocity(&self, constraint: &mut VelocityConstraint, world: &mut PixelWorld, delta_time: f32) {
+    fn solve_velocity(&self, constraint: &mut VelocityConstraint, world: &mut PixelWorld, delta_time: f32, apply_bias: bool) {
         let contact = &constraint.contact;
-        let relative_velocity = calculate_relative_velocity(contact, world) + self.bias_velocity(contact, world, delta_time);
+        let relative_velocity = calculate_relative_velocity(contact, world) + if apply_bias { self.bias_velocity(contact, world, delta_time) } else { Vec2::ZERO };
         let velocity_per_impulse = Self::velocity_per_impulse(contact, world);
         let impulse_per_velocity = velocity_per_impulse.inverse();
 
