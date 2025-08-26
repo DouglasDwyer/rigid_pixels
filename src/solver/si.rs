@@ -139,9 +139,9 @@ impl SequentialImpulse {
 
     /// Solves a single velocity constraint, updating the total applied impulse and the velocity
     /// of the bodies in the `world`.
-    fn solve_velocity(&self, constraint: &mut VelocityConstraint, world: &mut PixelWorld, delta_time: f32, apply_bias: bool) {
+    fn solve_velocity(&self, constraint: &mut VelocityConstraint, world: &mut PixelWorld, delta_time: f32, apply_baumgarte: bool) {
         let contact = &constraint.contact;
-        let relative_velocity = calculate_relative_velocity(contact, world) + if apply_bias { self.bias_velocity(contact, world, delta_time) } else { Vec2::ZERO };
+        let relative_velocity = calculate_relative_velocity(contact, world) + self.bias_velocity(contact, world, delta_time, apply_baumgarte);
         let velocity_per_impulse = Self::velocity_per_impulse(contact, world);
         let impulse_per_velocity = velocity_per_impulse.inverse();
 
@@ -153,9 +153,10 @@ impl SequentialImpulse {
 
         let total_impulse_unclamped = if contact.material.friction * normal_impulse < planar_impulse_length {
             let relative_velocity_without_impulse = relative_velocity - velocity_per_impulse * constraint.impulse;
-            let impulse_direction = (contact.normal + contact.material.friction * planar_impulse.normalize()).normalize();
+            let impulse_direction = (contact.normal + contact.material.friction * planar_impulse.normalize_or_zero()).normalize();
             let velocity_per_directed_impulse = velocity_per_impulse * impulse_direction;
             let impulse_magnitude = -relative_velocity_without_impulse.dot(contact.normal) / velocity_per_directed_impulse.dot(contact.normal);
+
             impulse_magnitude * impulse_direction
         }
         else {
@@ -219,10 +220,15 @@ impl SequentialImpulse {
     /// to eliminate any separation between the bodies.
     /// 
     /// For non-speculative contacts, the bias includes the Baumgarte coefficient and slop.
-    fn bias_velocity(&self, contact: &Contact, world: &PixelWorld, delta_time: f32) -> Vec2 {
+    fn bias_velocity(&self, contact: &Contact, world: &PixelWorld, delta_time: f32, apply_baumgarte: bool) -> Vec2 {
         let separation = contact.separation(world);
         let magnitude = if separation < 0.0 {
-            (self.config.velocity_baumgarte / self.config.substeps as f32) * (separation + Self::LINEAR_SLOP).min(0.0) / delta_time
+            if apply_baumgarte {
+                (self.config.velocity_baumgarte / self.config.substeps as f32) * (separation + Self::LINEAR_SLOP).min(0.0) / delta_time
+            }
+            else {
+                0.0
+            }            
         }
         else {
             separation / delta_time

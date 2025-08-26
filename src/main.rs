@@ -174,7 +174,7 @@ async fn main() {
             warm_starting: true
         })),
         delta_time: 0.015
-    }, get_time(), scene::single_box());
+    }, get_time(), scene::upside_down_box_pyramid());
 
     loop {
         simulation.update(get_time());
@@ -210,16 +210,9 @@ Improvements:
   > NGS does not seem to be a signficant improvement; TGS is the big win
 
 Things to think about:
-- Relaxation is bugged w.r.t speculative contacts! During relaxation, we try to make the velocity ZERO. But in combination with substepping,
-  this means that the velocity goes to zero far too early, and artifacts appear.
-  > Turning off relaxation fixes the problem.
-  > Is there another way to deal with energetic Baumgarte stabilization?
-
 - Corner normal handling is weird. How does Teardown do it?
   > Just discard any corner-corner normals that conflict? This led to lots of jittering. Not sure why.
   > I also tried using cardinal-only normals. This led to some collisions being missed. I will need to revisit this.
-  
-- The Tumbler disappeared once. Need to add NaN panics and track that down.
 
 - There were NaNs in collision detection when voxels clipped through the opposite side of an edge. How did the 3D engine handle this?
 
