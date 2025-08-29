@@ -37,9 +37,9 @@ impl Renderer {
     }
 
     /// Draws all objects in the world.
-    fn draw_objects(&self, objects: &PixelWorld) {
+    fn draw_objects(&self, world: &PixelWorld) {
         let screen_world_matrix = self.camera.screen_world_matrix(vec2(screen_width(), screen_height()), screen_dpi_scale());
-        for object in objects.values() {
+        for object in world.objects.values() {
             Self::draw_object(&screen_world_matrix, object);
         }
     }
@@ -78,7 +78,7 @@ impl Renderer {
         egui::SidePanel::right("Info panel")
             .min_width(500.0)
             .show(ctx, |ui| {
-            for (id, body) in world {
+            for (id, body) in &world.objects {
                 ui.label(format!("{id:?}"));
                 ui.label(format!("Velocity: {:?}", body.velocity));
             }
@@ -145,7 +145,7 @@ impl Renderer {
                         origin: position
                     };
 
-                    let object = &mut world[dragged.id];
+                    let object = &mut world.objects[dragged.id];
                     let world_space_point = object.transform.to_matrix().transform_point2(dragged.relative_position);
                     let point_velocity = Vec2::Y.rotate(world_space_point - object.transform.position) * object.velocity.angular + object.velocity.linear;
                     
@@ -164,7 +164,7 @@ impl Renderer {
 
     /// Selects a new object for a click at world-space `position`.
     fn select_dragged_object(&mut self, position: Vec2, world: &mut PixelWorld) {
-        for (id, object) in world {
+        for (id, object) in &mut world.objects {
             let clicked_position = object.world_grid_matrix().inverse().transform_point2(position);
             if object.body.grid().get_or_empty(clicked_position.floor().as_ivec2().as_uvec2()) {
                 object.velocity = Velocity::default();

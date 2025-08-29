@@ -144,7 +144,7 @@ impl SequentialImpulse {
         let contact = &constraint.contact;
         constraint.impulse += impulse;
         for (index, id) in constraint.contact.objects.into_iter().enumerate() {
-            let object = &mut world[id];
+            let object = &mut world.objects[id];
             let relative_position = contact.local_position[index].rotate(Vec2::from_angle(object.transform.rotation));
             let impulsive_torque = relative_position.perp_dot(impulse);
             let sign = [-1.0, 1.0][index];
@@ -183,7 +183,7 @@ impl SequentialImpulse {
         let mut result = Mat2::ZERO;
 
         for (index, id) in contact.objects.into_iter().enumerate() {
-            let object = &world[id];
+            let object = &world.objects[id];
 
             let scaled_tangent = contact.local_position[index].rotate(Vec2::from_angle(object.transform.rotation)).rotate(Vec2::Y);
             result += Mat2::from_diagonal(Vec2::splat(object.body.inverse_mass()));
@@ -243,7 +243,7 @@ impl VelocityConstraint {
 fn calculate_relative_velocity(contact: &Contact, world: &PixelWorld) -> Vec2 {
     let mut velocity = Vec2::ZERO;
     for (index, object) in contact.objects.into_iter().enumerate() {
-        let body = &world[object];
+        let body = &world.objects[object];
         let relative_position = contact.local_position[index].rotate(Vec2::from_angle(body.transform.rotation));
         velocity += [-1.0, 1.0][index] * (body.velocity.linear + body.velocity.angular * relative_position.rotate(Vec2::Y));
     }

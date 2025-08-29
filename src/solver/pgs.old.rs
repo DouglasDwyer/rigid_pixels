@@ -94,7 +94,7 @@ impl Pgs {
     fn apply_constraint_forces(&mut self, constraints: &[Constraint], lambdas: &[f32], world: &mut PixelWorld, delta_time: f32) {
         for (constraint, lambda) in constraints.into_iter().zip(lambdas.iter().copied()) {
             for ((object_id, motion), j) in constraint.objects.into_iter().zip(*constraint.j).zip(*constraint.j) {
-                let object = &mut world[object_id];
+                let object = &mut world.objects[object_id];
                 let constraint_force = j * lambda;
                 object.velocity += delta_time * Motion {
                     linear: object.body.inverse_mass() * constraint_force.linear,
@@ -131,12 +131,12 @@ impl Pgs {
 
         for constraint in constraints {
             result.push(MotionPair([Motion {
-                linear: world[constraint.objects[0]].body.inverse_mass() * constraint.j[0].linear,
-                angular: world[constraint.objects[0]].body.inverse_inertia_tensor() * constraint.j[0].angular
+                linear: world.objects[constraint.objects[0]].body.inverse_mass() * constraint.j[0].linear,
+                angular: world.objects[constraint.objects[0]].body.inverse_inertia_tensor() * constraint.j[0].angular
             },
             Motion {
-                linear: world[constraint.objects[1]].body.inverse_mass() * constraint.j[1].linear,
-                angular: world[constraint.objects[1]].body.inverse_inertia_tensor() * constraint.j[1].angular
+                linear: world.objects[constraint.objects[1]].body.inverse_mass() * constraint.j[1].linear,
+                angular: world.objects[constraint.objects[1]].body.inverse_inertia_tensor() * constraint.j[1].angular
             }]));
         }
 
@@ -158,7 +158,7 @@ impl Pgs {
         let mut result = Vec::with_capacity(constraints.len());
         for constraint in constraints {
             let zeta_term = if constraint.c < 0.0 { -self.config.baumgarte * constraint.c / delta_time } else { -constraint.c / delta_time };
-            let j_term = -constraint.j.dot(MotionPair([world[constraint.objects[0]].velocity, world[constraint.objects[1]].velocity]));
+            let j_term = -constraint.j.dot(MotionPair([world.objects[constraint.objects[0]].velocity, world.objects[constraint.objects[1]].velocity]));
             result.push((zeta_term + j_term) / delta_time);
         }
         result

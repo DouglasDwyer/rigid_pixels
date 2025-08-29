@@ -76,14 +76,14 @@ impl Simulation {
 
     /// Clears all external forces to progress to the next frame.
     fn clear_force_accumulators(&mut self) {
-        for object in self.world.values_mut() {
+        for object in self.world.objects.values_mut() {
             object.forces = ForceAccumulator::default()
         }
     }
 
     /// Adds a test force to all objects in the scene.
     fn test_force_generator(&mut self) {
-        for object in self.world.values_mut() {
+        for object in self.world.objects.values_mut() {
             if 0.0 < object.body.inverse_mass() {
                 object.forces.force += -G * Vec2::Y / object.body.inverse_mass();
             }
@@ -133,8 +133,8 @@ impl Contact {
     /// Computes the current displacement of the contacts along the normal axis,
     /// relative to the required `penetration` for this contact.
     pub fn separation(&self, world: &PixelWorld) -> f32 {
-        self.normal.dot(world[self.objects[1]].transform * self.local_position[1]
-            - world[self.objects[0]].transform * self.local_position[0]) - self.penetration        
+        self.normal.dot(world.objects[self.objects[1]].transform * self.local_position[1]
+            - world.objects[self.objects[0]].transform * self.local_position[0]) - self.penetration        
     }
 
     /// Swaps the order of the objects involved in the collision.

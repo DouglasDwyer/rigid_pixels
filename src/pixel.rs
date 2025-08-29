@@ -29,8 +29,14 @@ impl PixelMaterial {
     }
 }
 
-/// Stores a collection of objects in a world.
-pub type PixelWorld = SlotMap<ObjectId, PixelObject>;
+/// Holds the world being simulated.
+#[derive(Debug, Default)]
+pub struct PixelWorld {
+    /// Joints which connect objects together.
+    pub joints: Vec<()>,
+    /// The objects in the world.
+    pub objects: SlotMap<ObjectId, PixelObject>,
+}
 
 /// Efficiently gathers all external forces over the course of a frame.
 #[derive(Copy, Clone, Debug, Default)]

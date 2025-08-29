@@ -210,7 +210,7 @@ impl Detector {
     /// Iterates over all object pairs in `world`. Each pair is only returned once,
     /// with lower [`ObjectId`]s coming first.
     fn iter_object_pairs<'a>(world: &'a PixelWorld) -> impl IntoIterator<Item = ((ObjectId, &'a PixelObject), (ObjectId, &'a PixelObject))> {
-        world.iter().flat_map(|a| world.iter().map(move |b| (a, b)))
+        world.objects.iter().flat_map(|a| world.objects.iter().map(move |b| (a, b)))
             .filter(|((id_a, _), (id_b, _))| *id_a < *id_b)
     }
 }

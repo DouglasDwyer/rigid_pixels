@@ -52,14 +52,14 @@ pub struct Force {
 
 /// Integrates the forces on all objects in the world, updating their velocities.
 fn integrate_external_forces(world: &mut PixelWorld, delta_time: f32) {
-    for object in world.values_mut() {
+    for object in world.objects.values_mut() {
         object.velocity = object.velocity.integrate_force(delta_time, object.forces, &object.body);
     }
 }
 
 /// Integrates the velocities of all objects in the world, updating their positions.
 fn integrate_velocities(world: &mut PixelWorld, delta_time: f32) {
-    for object in world.values_mut() {
+    for object in world.objects.values_mut() {
         object.transform = object.transform.integrate_velocity(delta_time, object.velocity);
     }
 }
