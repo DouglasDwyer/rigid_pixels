@@ -166,13 +166,13 @@ async fn main() {
         detector: Detector::new(DetectorKind::Speculative { include_external_forces: true, mode: SpeculativeStepMode::Midpoint }),
         solver: Solver::SequentialImpulse(SequentialImpulse::new(SolverConfig {
             baumgarte: 0.2,
-            relaxation_iterations: 0,
+            relaxation_iterations: 1,
             substeps: 6,
-            velocity_iterations: 2,
+            velocity_iterations: 1,
             warm_starting: true
         })),
         delta_time: 0.015
-    }, get_time(), scene::upside_down_box_pyramid());
+    }, get_time(), scene::box_pyramid());
 
     loop {
         simulation.update(get_time());
