@@ -45,15 +45,6 @@ impl SequentialImpulse {
 
             integrate_velocities(world, substep_time);
 
-            let mut positions = contacts.iter().map(PositionConstraint::new)
-                .collect::<Vec<_>>();
-
-            for _ in 0..self.config.position_iterations {
-                for constraint in &mut positions {
-                    self.solve_position(constraint, world);
-                }
-            }
-                
             for _ in 0..self.config.relaxation_iterations {
                 for constraint in &mut constraints {
                     self.solve_velocity(constraint, world, substep_time, false);
@@ -86,57 +77,7 @@ impl SequentialImpulse {
 
         Self::apply_impulse(constraint, world, delta_impulse * contact.normal);
     }
-
-    /// Solves a single position constraint, updating the total applied integral impulse and
-    /// the positions of the bodies in the `world`.
-    fn solve_position(&self, constraint: &mut PositionConstraint, world: &mut PixelWorld) {
-        let contact = &constraint.contact;
-        let displacement_per_integral_impulse = Self::velocity_per_impulse(contact, world);
-
-        let normal_displacement_per_integral_impulse = displacement_per_integral_impulse * contact.normal;
-        let required_displacement = contact.separation(world) + Self::LINEAR_SLOP;
-        let required_integral_impulse = -(self.config.position_baumgarte / self.config.substeps as f32) * required_displacement
-            / normal_displacement_per_integral_impulse.dot(contact.normal);
-
-        let total_integral_impulse = (constraint.integral_impulse + required_integral_impulse).max(0.0);
-        let delta_integral_impulse = (total_integral_impulse - constraint.integral_impulse) * contact.normal;
-        constraint.integral_impulse = total_integral_impulse;
-
-        for (index, id) in contact.objects.into_iter().enumerate() {
-            let object = &mut world[id];
-            let relative_position = contact.local_position[index].rotate(Vec2::from_angle(object.transform.rotation));
-            let integral_impulsive_torque = relative_position.perp_dot(delta_integral_impulse);
-            let sign = [-1.0, 1.0][index];
-            object.transform.position += sign * object.body.inverse_mass() * delta_integral_impulse;
-            object.transform.rotation += sign * object.body.inverse_inertia_tensor() * integral_impulsive_torque;
-        }
-        
-        /*
-        let contact = &constraint.contact;
-        let relative_velocity = Self::relative_velocity(contact, world);
-        let velocity_per_impulse = Self::velocity_per_impulse(contact, world);
-
-        let baumgarte_velocity = -self.config.baumgarte * contact.separation.min(0.0) / delta_time;
-        let normal_velocity_per_impulse = velocity_per_impulse * contact.normal;
-        let required_impulse = (baumgarte_velocity - relative_velocity.dot(contact.normal)) / normal_velocity_per_impulse.dot(contact.normal);
-
-        let total_impulse = (constraint.normal_impulse + required_impulse).max(0.0);
-        let delta_impulse = total_impulse - constraint.normal_impulse;
-        constraint.normal_impulse = total_impulse;
-
-        let impulse = delta_impulse * contact.normal;
-
-        for (index, id) in contact.objects.into_iter().enumerate() {
-            let object = &mut world[id];
-            let impulsive_torque = contact.relative_position[index].perp_dot(impulse);
-            let sign = [-1.0, 1.0][index];
-            object.velocity += Velocity {
-                linear: sign * object.body.inverse_mass() * impulse,
-                angular: sign * object.body.inverse_inertia_tensor() * impulsive_torque
-            };
-        }     */
-    }
-
+    
     /// Solves a single velocity constraint, updating the total applied impulse and the velocity
     /// of the bodies in the `world`.
     fn solve_velocity(&self, constraint: &mut VelocityConstraint, world: &mut PixelWorld, delta_time: f32, apply_baumgarte: bool) {
@@ -224,7 +165,7 @@ impl SequentialImpulse {
         let separation = contact.separation(world);
         let magnitude = if separation < 0.0 {
             if apply_baumgarte {
-                (self.config.velocity_baumgarte / self.config.substeps as f32) * (separation + Self::LINEAR_SLOP).min(0.0) / delta_time
+                (self.config.baumgarte / self.config.substeps as f32) * (separation + Self::LINEAR_SLOP).min(0.0) / delta_time
             }
             else {
                 0.0

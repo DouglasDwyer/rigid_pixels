@@ -165,12 +165,10 @@ async fn main() {
     let mut simulation = Simulation::new(PhysicsEngine {
         detector: Detector::new(DetectorKind::Speculative { include_external_forces: true, mode: SpeculativeStepMode::Midpoint }),
         solver: Solver::SequentialImpulse(SequentialImpulse::new(SolverConfig {
-            position_baumgarte: 0.2,
-            position_iterations: 0,
-            velocity_baumgarte: 0.2,
-            velocity_iterations: 2,
+            baumgarte: 0.2,
             relaxation_iterations: 0,
             substeps: 6,
+            velocity_iterations: 2,
             warm_starting: true
         })),
         delta_time: 0.015
