@@ -129,7 +129,7 @@ impl SequentialImpulse {
     /// Solves a joint-based velocity constraint.
     fn solve_joint_velocity(&self, constraint: &mut Constraint, world: &mut PixelWorld, delta_time: f32, apply_baumgarte: bool) {
         let delta_impulse = self.solve_joint_linear_velocity(constraint, world, delta_time, apply_baumgarte);
-        let delta_impulsive_torque = 0.0;// self.solve_joint_angular_velocity(constraint, world, delta_time, apply_baumgarte);
+        let delta_impulsive_torque = self.solve_joint_angular_velocity(constraint, world, delta_time, apply_baumgarte);
         Self::apply_impulse(constraint, world, delta_impulse, delta_impulsive_torque);
     }
 
@@ -164,9 +164,17 @@ impl SequentialImpulse {
         
         let angular_velocity_per_impulsive_torque = Self::angular_velocity_per_impulsive_torque(constraint, world);
         let relative_angular_velocity = constraint.relative_angular_velocity(world);
-        let torque = -angular_velocity_per_impulsive_torque * (relative_angular_velocity + 0.0);
+        
+        let rotation_a = world.objects[constraint.objects()[0]].transform.rotation;
+        let rotation_b = world.objects[constraint.objects()[1]].transform.rotation;
+        let angle_difference = Vec2::from_angle(rotation_b).angle_between(Vec2::from_angle(rotation_a));
 
-        let total_impulsive_torque = torque.clamp(-joint.max_torque, joint.max_torque);
+        // todo here: figure out how to clamp the angles...
+        let substep_baumgarte = if apply_baumgarte { self.config.baumgarte / self.config.substeps as f32 } else { 0.0 };
+        let angular_velocity_to_kill = relative_angular_velocity - substep_baumgarte * angle_difference / delta_time;
+        let torque = -angular_velocity_per_impulsive_torque.recip() * angular_velocity_to_kill;
+
+        let total_impulsive_torque = (torque + constraint.impulsive_torque).clamp(-joint.max_torque, joint.max_torque);
         total_impulsive_torque - constraint.impulsive_torque
     }
 

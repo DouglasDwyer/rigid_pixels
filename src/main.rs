@@ -85,7 +85,7 @@ impl Simulation {
     fn test_force_generator(&mut self) {
         for object in self.world.objects.values_mut() {
             if 0.0 < object.body.inverse_mass() {
-                //object.forces.force += -G * Vec2::Y / object.body.inverse_mass();
+                object.forces.force += -G * Vec2::Y / object.body.inverse_mass();
             }
         }
     }
