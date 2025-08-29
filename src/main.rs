@@ -206,11 +206,14 @@ Improvements:
   > The tumbler works as well
   > Apply restitution once on the final impulses output by the solver
   > NGS does not seem to be a signficant improvement; TGS is the big win
+> Corner-corner normal clamping: check (if in either reference frame) the normal is pointing into a voxel's neighbors.
+  If so, clamp the normal so that it's perpendicular to the edge.
+  > This prevents artifacts and strange "bumps" when corners slide past one another
 
 Things to think about:
-- Corner normal handling is weird. How does Teardown do it?
-  > Just discard any corner-corner normals that conflict? This led to lots of jittering. Not sure why.
-  > I also tried using cardinal-only normals. This led to some collisions being missed. I will need to revisit this.
+- Dropping the box stack from high up causes interpenetration
+  > Is this a problem with speculative contacts? Or is it an issue with the solver?
+    Or the order of detection, solving, and velocity integration?
 
 - There were NaNs in collision detection when voxels clipped through the opposite side of an edge. How did the 3D engine handle this?
 

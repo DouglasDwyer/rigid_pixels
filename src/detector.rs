@@ -121,20 +121,12 @@ impl Detector {
 
     /// Gathers all contacts between `a` and `b`.
     fn gather_contacts(a: DetectorObject, b: DetectorObject, contacts: &mut Vec<Contact>) {
-        Self::gather_corner_contacts(a, b, contacts);
-
-        let start_i = contacts.len();
-        Self::gather_corner_contacts(b, a, contacts);
-
-        // Hack: if objects are not swapped, then updating the separation doesn't work in update_speculative
-        // Make this less dumb!
-        for contact in &mut contacts[start_i..] {
-            *contact = contact.swap_objects();
-        }
+        Self::gather_corner_contacts(a, b, contacts, true);
+        Self::gather_corner_contacts(b, a, contacts, false);
     }
 
     /// Gathers all contact constraints produced by corners of object `a` colliding with `b`.
-    fn gather_corner_contacts(a: DetectorObject, b: DetectorObject, contacts: &mut Vec<Contact>) {
+    fn gather_corner_contacts(a: DetectorObject, b: DetectorObject, contacts: &mut Vec<Contact>, allow_corner_corner: bool) {
         let a_to_world_space = a.body.world_grid_matrix(a.transform);
         let b_to_a = a_to_world_space.inverse() * b.body.world_grid_matrix(b.transform);
 
@@ -143,6 +135,7 @@ impl Detector {
             let start_i = contacts.len();
 
             let b_pixel_position = b_to_a.transform_point2(corner.as_vec2() + Vec2::splat(0.5));
+            let b_neighbors = b.body.neighbors(corner);
             let min_pixel = (b_pixel_position - Vec2::splat(0.5)).floor().as_ivec2().as_uvec2();
             for offset in [UVec2::ZERO, UVec2::X, UVec2::Y, UVec2::ONE] {
                 let position = min_pixel + offset;
@@ -164,18 +157,22 @@ impl Detector {
                             continue;
                         }
                     }
-                    else if closest_edge_sq.is_some() {
+                    else if !allow_corner_corner || closest_edge_sq.is_some() {
                         continue;
                     }
 
-                    let lower = BVec2::new(neighbors.contains(PixelNeighbors::LEFT), neighbors.contains(PixelNeighbors::DOWN));
-                    let upper = BVec2::new(neighbors.contains(PixelNeighbors::RIGHT), neighbors.contains(PixelNeighbors::UP));
-                    let clamped_lower = Vec2::select(lower, delta.max(Vec2::ZERO), delta);
-                    let clamped_upper = Vec2::select(upper, clamped_lower.min(Vec2::ZERO), clamped_lower);
-                    let normal = clamped_upper.normalize_or_zero();
+                    let mut normal = Self::clamp_normal(delta, neighbors);
 
                     if normal == Vec2::ZERO {
                         continue;
+                    }
+
+                    if neighbors.kind() == PixelKind::Corner {
+                        let rotated_normal = -normal.rotate(Vec2::from_angle(a.transform.rotation - b.transform.rotation));
+                        let clamped_rotated = Self::clamp_normal(rotated_normal, b_neighbors);
+                        if clamped_rotated != rotated_normal {
+                            normal = -clamped_rotated.rotate(Vec2::from_angle(b.transform.rotation - a.transform.rotation));
+                        }
                     }
                     
                     let contact_point = b_pixel_position - 0.5 * delta;
@@ -198,6 +195,16 @@ impl Detector {
                 }
             }
         }
+    }
+
+    /// Given the displacement between two voxel centers, and the neighbors of the voxel that was hit,
+    /// calculates the appropriate normal. The normal must never point toward a filled neighbor.
+    fn clamp_normal(delta: Vec2, neighbors: PixelNeighbors) -> Vec2 {
+        let lower = BVec2::new(neighbors.contains(PixelNeighbors::LEFT), neighbors.contains(PixelNeighbors::DOWN));
+        let upper = BVec2::new(neighbors.contains(PixelNeighbors::RIGHT), neighbors.contains(PixelNeighbors::UP));
+        let clamped_lower = Vec2::select(lower, delta.max(Vec2::ZERO), delta);
+        let clamped_upper = Vec2::select(upper, clamped_lower.min(Vec2::ZERO), clamped_lower);
+        clamped_upper.normalize_or_zero()
     }
 
     /// Iterates over all object pairs in `world`. Each pair is only returned once,
