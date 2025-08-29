@@ -102,6 +102,17 @@ pub fn circle_rotation_jitter() -> PixelWorld {
     world
 }
 
+/// Creates a world to test the hinge joint.
+pub fn hinge_joint() -> PixelWorld {
+    let mut world = PixelWorld::default();
+    //let g = world.objects.insert(create_floor1(ROUGH_SOFT));
+    let a = world.objects.insert(create_box(GOLD, ROUGH_SOFT, Transform { position: vec2(8.25, 15.25), rotation: 0.0 }, uvec2(2, 3)));
+    let b = world.objects.insert(create_box(GOLD, ROUGH_SOFT, Transform { position: vec2(14.25, 15.25), rotation: 0.0 }, uvec2(3, 4)));
+    world.insert_joint([a, b], Transform::new(vec2(8.25, 15.25), 0.0), JointDescriptor::slider(-5.0..=5.0));
+    //world.insert_joint([a, g], Transform::new(vec2(8.25, 15.25), 0.0), JointDescriptor::hinge().x_limits(0.0..=5.0));
+    world
+}
+
 /// Creates a box with `color` at `transform`.
 fn create_box(color: Color, material: PixelMaterial, transform: Transform, extents: UVec2) -> PixelObject {
     let mut grid = PixelGrid::new(extents);

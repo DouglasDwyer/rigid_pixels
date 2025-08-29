@@ -25,9 +25,28 @@ impl Transform {
         Self::new(self.position + dt * velocity.linear, (self.rotation + dt * velocity.angular).rem_euclid(std::f32::consts::TAU))
     }
 
+    /// Computes a transformation that reverses this one.
+    pub fn inverse(self) -> Self {
+        Self {
+            position: -self.position.rotate(Vec2::from_angle(-self.rotation)),
+            rotation: -self.rotation
+        }
+    }
+
     /// Produces a matrix converting from model space to world space.
     pub fn to_matrix(self) -> Mat3 {
         Mat3::from_scale_angle_translation(Vec2::ONE, self.rotation, self.position)
+    }
+}
+
+impl Mul for Transform {
+    type Output = Self;
+
+    fn mul(self, rhs: Self) -> Self::Output {
+        Self {
+            position: self * rhs.position,
+            rotation: self.rotation + rhs.rotation
+        }
     }
 }
 

@@ -85,7 +85,7 @@ impl Simulation {
     fn test_force_generator(&mut self) {
         for object in self.world.objects.values_mut() {
             if 0.0 < object.body.inverse_mass() {
-                object.forces.force += -G * Vec2::Y / object.body.inverse_mass();
+                //object.forces.force += -G * Vec2::Y / object.body.inverse_mass();
             }
         }
     }
@@ -149,14 +149,122 @@ impl Contact {
     }
 }
 
-/// Allows for uniquely identifying a constraint across frames.
+/// A persistent constraint that limits the motion between a point on two bodies.
+#[derive(Clone, Debug)]
+pub struct Joint {
+    /// The objects that are constrained.
+    pub objects: [ObjectId; 2],
+    /// The ID of the joint.
+    pub id: JointId,
+    /// The location of the joint in each object's local coordinate system.
+    pub local_transform: [Transform; 2],
+    /// The maximum amount of force that this joint may exert.
+    pub max_force: f32,
+    /// The maximum amount of torque that this joint may exert.
+    pub max_torque: f32,
+    /// The minimum allowed translation along the joint axes.
+    pub translation_min: Vec2,
+    /// The maximum allowed translation along the joint axes.
+    pub translation_max: Vec2,
+    /// The minimum allowed rotation along the joint axes.
+    pub rotation_min: f32,
+    /// The maximum allowed rotation along the joint axes.
+    pub rotation_max: f32
+}
+
+/// Defines the local properties of a [`Joint`].
+#[derive(Clone, Debug)]
+pub struct JointDescriptor {
+    /// The maximum amount of force that this joint may exert.
+    max_force: f32,
+    /// The maximum amount of torque that this joint may exert.
+    max_torque: f32,
+    /// The maximum allowed translation along the joint axes.
+    translation_max: Vec2,
+    /// The minimum allowed translation along the joint axes.
+    translation_min: Vec2,
+    /// The maximum allowed rotation along the joint axes.
+    rotation_max: f32,
+    /// The minimum allowed rotation along the joint axes.
+    rotation_min: f32
+}
+
+impl JointDescriptor {
+    /// Allow all forms of motion.
+    pub fn free() -> Self {
+        Self {
+            max_force: f32::MAX,
+            max_torque: f32::MAX,
+            translation_max: Vec2::MAX,
+            translation_min: Vec2::MIN,
+            rotation_max: f32::MAX,
+            rotation_min: f32::MIN
+        }
+    }
+
+    /// Prevent translation along two axes.
+    /// Allow rotation around one axis.
+    pub fn hinge() -> Self {
+        Self {
+            translation_min: Vec2::ZERO,
+            translation_max: Vec2::ZERO,
+            ..Self::free()
+        }
+    }
+    
+    /// Prevent translation along one axis.
+    /// Prevent rotation around one axis.
+    pub fn slider(range: RangeInclusive<f32>) -> Self {
+        Self {
+            rotation_max: 0.0,
+            rotation_min: 0.0,
+            translation_max: vec2(*range.end(), 0.0),
+            translation_min: vec2(*range.start(), 0.0),
+            ..Self::free()
+        }
+    }
+
+    /// Allow translation along both axes.
+    /// Prevent rotation around one axis.
+    pub fn rotational() -> Self {
+        Self {
+            rotation_min: 0.0,
+            rotation_max: 0.0,
+            ..Self::free()
+        }
+    }
+
+    /// Specifies the maximum force magnitude that this joint exerts
+    /// to satisfy positional constraints.
+    pub fn max_force(self, value: f32) -> Self {
+        Self {
+            max_force: value,
+            ..self
+        }
+    }
+
+    /// Specifies the maximum torque magnitude that this joint exerts
+    /// to satisfy rotational constraints.
+    pub fn max_torque(self, value: f32) -> Self {
+        Self {
+            max_torque: value,
+            ..self
+        }
+    }
+}
+
+/// Allows for uniquely identifying a contact across frames.
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct ContactId {
     /// The objects involved in the collision.
-    pub objects: [ObjectId; 2],
+    objects: [ObjectId; 2],
     /// The position of each pixel involved in the collision. 
-    pub pixel_position: [UVec2; 2]
+    pixel_position: [UVec2; 2]
 }
+
+/// Allows for uniquely identifying a joint across frames.
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+pub struct JointId(u32);
 
 /// Executes the main loop.
 #[macroquad::main("Rigid pixels")]
@@ -172,7 +280,7 @@ async fn main() {
             warm_starting: true
         })),
         delta_time: 0.015
-    }, get_time(), scene::box_pyramid());
+    }, get_time(), scene::hinge_joint());
 
     loop {
         simulation.update(get_time());

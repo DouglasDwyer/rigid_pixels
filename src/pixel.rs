@@ -33,9 +33,28 @@ impl PixelMaterial {
 #[derive(Debug, Default)]
 pub struct PixelWorld {
     /// Joints which connect objects together.
-    pub joints: Vec<()>,
+    pub joints: Vec<Joint>,
     /// The objects in the world.
     pub objects: SlotMap<ObjectId, PixelObject>,
+}
+
+impl PixelWorld {
+    /// Adds a joint at world `point` connecting `objects`.
+    pub fn insert_joint(&mut self, objects: [ObjectId; 2], point: Transform, descriptor: JointDescriptor) {
+        let id = JointId(self.joints.iter().fold(0, |acc, x| acc.max(x.id.0)) + 1);
+        
+        self.joints.push(Joint {
+            objects,
+            id,
+            local_transform: objects.map(|id| self.objects[id].transform.inverse() * point),
+            max_force: descriptor.max_force,
+            max_torque: descriptor.max_torque,
+            translation_max: descriptor.translation_max,
+            translation_min: descriptor.translation_min,
+            rotation_max: descriptor.rotation_max,
+            rotation_min: descriptor.rotation_min
+        });
+    }
 }
 
 /// Efficiently gathers all external forces over the course of a frame.
