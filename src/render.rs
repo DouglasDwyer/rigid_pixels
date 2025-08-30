@@ -61,8 +61,8 @@ impl Renderer {
 
     /// Draws lines to visualize the minimum/maximum joint bounds.
     fn draw_translational_limits(&self, joint: &Joint, world: &PixelWorld, screen_world_matrix: &Mat3) {
-        let object = &world.objects[joint.objects[1]];
-        let transform = joint.local_transform[1];
+        let object = &world.objects[joint.objects[0]];
+        let transform = joint.local_transform[0];
         
         let center_pixels = screen_world_matrix.transform_point2(object.transform * transform.position);
         let mut basis_to_world = object.transform * transform;

@@ -1,16 +1,5 @@
 use crate::*;
 
-/*
-TODO:
-- Joints
-  > Position constraint
-  > Rotation constraint
-  > See about force limits? How to deal with friction?
-- Research normals issue
-- Use caching and projection rather than computing things like closing velocity from scratch? Though that DOES go through EVERY contact
-  (which maybe is just objectively worse, OR could store like list of contacts per body and go through)
-*/
-
 /// A surface with no friction and no bounciness.
 const SMOOTH_HARD: PixelMaterial = PixelMaterial {
     friction: 0.0,
@@ -105,10 +94,10 @@ pub fn circle_rotation_jitter() -> PixelWorld {
 /// Creates a world to test the hinge joint.
 pub fn hinge_joint() -> PixelWorld {
     let mut world = PixelWorld::default();
-    //let g = world.objects.insert(create_floor1(ROUGH_SOFT));
-    let a = world.objects.insert(create_box(GOLD, ROUGH_SOFT, Transform { position: vec2(8.25, 15.25), rotation: 0.0 }, uvec2(2, 3)));
-    let b = world.objects.insert(create_box(GOLD, ROUGH_SOFT, Transform { position: vec2(14.25, 15.25), rotation: 0.0 }, uvec2(3, 4)));
-    world.insert_joint([b, a], Transform::new(vec2(8.25, 15.25), std::f32::consts::FRAC_PI_2), JointDescriptor::slider(-500.0..=500.0));
+    let g = world.objects.insert(create_floor1(ROUGH_SOFT));
+    let a = world.objects.insert(create_box(GOLD, ROUGH_SOFT, Transform { position: vec2(15.25, 8.25), rotation: 0.0 }, uvec2(2, 3)));
+    let b = world.objects.insert(create_box(GOLD, ROUGH_SOFT, Transform { position: vec2(15.25, 14.25), rotation: 0.0 }, uvec2(3, 4)));
+    world.insert_joint([b, a], Transform::new(vec2(8.25, 15.25), 0.0), JointDescriptor::slider(-5.0..=5.0));
     //world.insert_joint([a, g], Transform::new(vec2(8.25, 15.25), 0.0), JointDescriptor::hinge().x_limits(0.0..=5.0));
     world
 }

@@ -33,6 +33,7 @@ impl SequentialImpulse {
             .chain(contacts.iter().map(|x| Constraint::new(x.clone(), world, &self.impulse_cache)))
             .collect::<Vec<_>>();
 
+        //println!("BEGIN SOLVE!");
         let substep_time = delta_time / self.config.substeps as f32;
         for _ in 0..self.config.substeps {
             self.apply_impulses(&mut constraints, world);
@@ -44,6 +45,8 @@ impl SequentialImpulse {
                 }
             }
 
+            //println!("THE FINAL {}", constraints[0].relative_velocity(world) - Self::velocity_per_impulse(&constraints[0], world) * constraints[0].impulse);
+
             integrate_velocities(world, substep_time);
 
             for _ in 0..self.config.relaxation_iterations {
@@ -52,7 +55,9 @@ impl SequentialImpulse {
                 }
             }
         }
-        
+
+        //println!("cuns {:?}", constraints.iter().map(|x| x.impulse).collect::<Vec<_>>());
+
         self.cache_constraint_forces(&constraints);
 
         for constraint in &mut constraints {
@@ -128,53 +133,60 @@ impl SequentialImpulse {
 
     /// Solves a joint-based velocity constraint.
     fn solve_joint_velocity(&self, constraint: &mut Constraint, world: &mut PixelWorld, delta_time: f32, apply_baumgarte: bool) {
+        //println!("preiter ({:?} {:?})", world.objects[constraint.objects()[0]].velocity, world.objects[constraint.objects()[1]].velocity);
         let delta_impulse = self.solve_joint_linear_velocity(constraint, world, delta_time, apply_baumgarte);
-        let delta_impulsive_torque = 0.0;// self.solve_joint_angular_velocity(constraint, world, delta_time, apply_baumgarte);
+        let delta_impulsive_torque = 0.0;//self.solve_joint_angular_velocity(constraint, world, delta_time, apply_baumgarte);
         Self::apply_impulse(constraint, world, delta_impulse, delta_impulsive_torque);
+        //println!("afteriter {} ({:?} {:?})", constraint.relative_velocity(world), world.objects[constraint.objects()[0]].velocity, world.objects[constraint.objects()[1]].velocity);
     }
 
     /// Solves the translational half of a joint constraint.
     fn solve_joint_linear_velocity(&self, constraint: &Constraint, world: &PixelWorld, delta_time: f32, apply_baumgarte: bool) -> Vec2 {
         let ConstraintSource::Joint(joint) = &constraint.source else { panic!("Called solve_joint_velocity on non-joint constraint") };
         
-        // Todo: could this be bad because it does not account for rotational motion far from the origin?
-        // The relative velocity only takes into account how the POINTS are moving, but the basis where we clamp is moving too.
-        // Would this be more stable if instead of relative velocity we computed velocity of point A in reference frame B (or vice versa)?
-        // What's more, the velocity per impulse would be WRONG in this case because it assumes the points overlap... can we calculate the correct one?
+        /*
+        
+        Key thing that's not working:
+         - The joint velocity should NOT CHANGE the velocity along unconstrained axes
+         - Right now, the joint's existence appears to be ADDING velocity horizontally.
+         - This shouldn't happen since `relative_velocity` is set to the velocity WITHOUT the constraint being there
+         - So the solution should attempt to preserve the ORIGINAL horizontal velocity rather than adding more.
+        
+         */
+
         let velocity_per_impulse = Self::velocity_per_impulse(constraint, world);
-        let relative_displacement = constraint.relative_displacement(world);
+        let relative_displacement = Self::relative_displacement(joint, world);
         let relative_velocity = constraint.relative_velocity(world) - velocity_per_impulse * constraint.impulse;
 
-        let world_to_joint_rotation = Mat2::from_angle(-world.objects[joint.objects[1]].transform.rotation - joint.local_transform[1].rotation);
+        let world_to_joint_rotation = Mat2::from_angle(-world.objects[joint.objects[0]].transform.rotation - joint.local_transform[0].rotation);
         let joint_displacement = world_to_joint_rotation * relative_displacement;
         let joint_velocity = world_to_joint_rotation * relative_velocity;
-
+        
+        /*
         let substep_baumgarte = if apply_baumgarte { self.config.baumgarte / self.config.substeps as f32 } else { 0.0 };
         let velocity_lower_bound = Vec2::select(joint_displacement.cmplt(joint.translation_min), Vec2::splat(substep_baumgarte), Vec2::ONE)
             * (joint.translation_min - joint_displacement) / delta_time;
         let velocity_upper_bound = Vec2::select(joint_displacement.cmpgt(joint.translation_max), Vec2::splat(substep_baumgarte), Vec2::ONE)
             * (joint.translation_max - joint_displacement) / delta_time;
 
-        //let clamped_velocity = joint_velocity.clamp(velocity_lower_bound, velocity_upper_bound);
-        //println!("CV mm {} for lims {} {}", clamped_velocity - joint_velocity, joint.translation_min, joint.translation_max);
+        let clamped_velocity = joint_velocity.clamp(velocity_lower_bound, velocity_upper_bound);
+        //println!("Dvel {clamped_velocity} vs {relative_velocity} {}", constraint.relative_velocity(world)); */
 
-        let mut clamped_velocity = Vec2::ZERO;
+        let substep_baumgarte = if apply_baumgarte { self.config.baumgarte / self.config.substeps as f32 } else { 0.0 };
+        
+        let normal_direction = world_to_joint_rotation.inverse() * Vec2::Y;
+        let velocity_per_normal_impulse = velocity_per_impulse * normal_direction;
+        let required_impulse = -(substep_baumgarte * relative_displacement.dot(normal_direction) / delta_time + relative_velocity.dot(normal_direction)) / velocity_per_normal_impulse.dot(normal_direction);
 
-        for i in 0..2 {
-            if joint.translation_min[i] != 0.0 || joint.translation_max[i] != 0.0 {
-                clamped_velocity[i] = joint_velocity[i];
-            }
-            else {
-                clamped_velocity[i] = -substep_baumgarte * joint_displacement[i] / delta_time;
-            }
-        }
-        println!("CV {clamped_velocity} {joint_velocity} {relative_velocity}");
-
+        /*
         let desired_velocity = world_to_joint_rotation.inverse() * clamped_velocity;
         let velocity_delta = desired_velocity - relative_velocity;
 
-        let total_impulse = (velocity_per_impulse.inverse() * velocity_delta).clamp_length_max(joint.max_force * delta_time);
-        total_impulse - constraint.impulse
+
+        let total_impulse = (velocity_per_impulse.inverse() * velocity_delta);//.clamp_length_max(joint.max_force * delta_time);
+        //println!("vpi {velocity_per_impulse} * {total_impulse} = {velocity_delta} (for relv {relative_velocity}");
+        total_impulse - constraint.impulse */
+        required_impulse * normal_direction - constraint.impulse
     }
 
     /// Solves the rotational half of a joint constraint.
@@ -231,8 +243,8 @@ impl SequentialImpulse {
         constraint.impulsive_torque += impulsive_torque;
 
         for (index, id) in constraint.objects().into_iter().enumerate() {
+            let relative_position = constraint.local_position(world)[index].rotate(Vec2::from_angle(world.objects[id].transform.rotation));
             let object = &mut world.objects[id];
-            let relative_position = constraint.local_position()[index].rotate(Vec2::from_angle(object.transform.rotation));
             let body_impulsive_torque = relative_position.perp_dot(impulse) + impulsive_torque;
             let sign = [-1.0, 1.0][index];
             object.velocity += Velocity {
@@ -276,6 +288,16 @@ impl SequentialImpulse {
 
         result
     }
+    
+    /// Gets the displacement in world space between the two joint anchors.
+    fn relative_displacement(joint: &Joint, world: &PixelWorld) -> Vec2 {
+        let mut displacement = Vec2::ZERO;
+        for (index, object) in joint.objects.into_iter().enumerate() {
+            let body = &world.objects[object];
+            displacement += [-1.0, 1.0][index] * (body.transform * joint.local_transform[index].position);
+        }
+        displacement
+    }
 
     /// Computes a linear map from impulse to the associated velocity.
     fn velocity_per_impulse(constraint: &Constraint, world: &PixelWorld) -> Mat2 {
@@ -284,7 +306,7 @@ impl SequentialImpulse {
         for (index, id) in constraint.objects().into_iter().enumerate() {
             let object = &world.objects[id];
 
-            let scaled_tangent = constraint.local_position()[index].rotate(Vec2::from_angle(object.transform.rotation)).rotate(Vec2::Y);
+            let scaled_tangent = constraint.local_position(world)[index].rotate(Vec2::from_angle(object.transform.rotation)).rotate(Vec2::Y);
             result += Mat2::from_diagonal(Vec2::splat(object.body.inverse_mass()));
             result += object.body.inverse_inertia_tensor() * vec2_outer_product(scaled_tangent, scaled_tangent);
         }
@@ -332,11 +354,14 @@ impl Constraint {
         }
     }
 
-    /// Gets the position of the constrained point on each object.
-    pub fn local_position(&self) -> [Vec2; 2] {
+    /// Gets the position on each object (in local space) where the force should be applied.
+    pub fn local_position(&self, world: &PixelWorld) -> [Vec2; 2] {
         match &self.source {
             ConstraintSource::Contact(contact) => contact.local_position,
-            ConstraintSource::Joint(joint) => joint.local_transform.map(|x| x.position),
+            ConstraintSource::Joint(joint) => [
+                world.objects[joint.objects[0]].transform.inverse() * world.objects[joint.objects[1]].transform * joint.local_transform[1].position,
+                joint.local_transform[1].position,
+            ]
         }
     }
 
@@ -346,16 +371,6 @@ impl Constraint {
             ConstraintSource::Contact(contact) => contact.objects,
             ConstraintSource::Joint(joint) => joint.objects,
         }
-    }
-
-    /// Gets the displacement from the contact point on the first object to the second.
-    pub fn relative_displacement(&self, world: &PixelWorld) -> Vec2 {
-        let mut displacement = Vec2::ZERO;
-        for (index, object) in self.objects().into_iter().enumerate() {
-            let body = &world.objects[object];
-            displacement += [-1.0, 1.0][index] * (body.transform * self.local_position()[index]);
-        }
-        displacement
     }
 
     /// Gets the relative angular velocity of the two objects.
@@ -373,7 +388,7 @@ impl Constraint {
         let mut velocity = Vec2::ZERO;
         for (index, object) in self.objects().into_iter().enumerate() {
             let body = &world.objects[object];
-            let relative_position = self.local_position()[index].rotate(Vec2::from_angle(body.transform.rotation));
+            let relative_position = self.local_position(world)[index].rotate(Vec2::from_angle(body.transform.rotation));
             velocity += [-1.0, 1.0][index] * (body.velocity.linear + body.velocity.angular * relative_position.rotate(Vec2::Y));
         }
         velocity

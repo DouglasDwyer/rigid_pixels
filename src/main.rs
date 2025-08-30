@@ -85,7 +85,7 @@ impl Simulation {
     fn test_force_generator(&mut self) {
         for object in self.world.objects.values_mut() {
             if 0.0 < object.body.inverse_mass() {
-                //object.forces.force += -G * Vec2::Y / object.body.inverse_mass();
+                object.forces.force += -G * Vec2::Y / object.body.inverse_mass();
             }
         }
     }
@@ -322,6 +322,10 @@ Things to think about:
 - Dropping the box stack from high up causes interpenetration
   > Is this a problem with speculative contacts? Or is it an issue with the solver?
     Or the order of detection, solving, and velocity integration?
+  > My guess is speculative contacts in general don't handle this case. Is there any workaround?
+
+- Big flaw in the joints math - constraints were adding energy. Constraints should only act along axes which are fixed
+  > How do we simulateneously solve for multiple constrained axes? How do we handle axes with limits?
 
 - There were NaNs in collision detection when voxels clipped through the opposite side of an edge. How did the 3D engine handle this?
 
