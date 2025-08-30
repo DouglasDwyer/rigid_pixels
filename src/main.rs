@@ -85,7 +85,7 @@ impl Simulation {
     fn test_force_generator(&mut self) {
         for object in self.world.objects.values_mut() {
             if 0.0 < object.body.inverse_mass() {
-                object.forces.force += -G * Vec2::Y / object.body.inverse_mass();
+                //object.forces.force += -G * Vec2::Y / object.body.inverse_mass();
             }
         }
     }
@@ -274,9 +274,9 @@ async fn main() {
         detector: Detector::new(DetectorKind::Speculative { include_external_forces: true, mode: SpeculativeStepMode::Midpoint }),
         solver: Solver::SequentialImpulse(SequentialImpulse::new(SolverConfig {
             baumgarte: 0.2,
-            relaxation_iterations: 1,
-            substeps: 6,
-            velocity_iterations: 1,
+            relaxation_iterations: 0,
+            substeps: 1,
+            velocity_iterations: 8,
             warm_starting: true
         })),
         delta_time: 0.015
@@ -327,5 +327,8 @@ Things to think about:
 
 - Box2D tracks something called totalNormalImpulse to check whether any impulse was EVER generated for a speculative contact.
   It prevents restitution from being applied to contacts without it. How important is this?
+
+- In 3D, rotation is a quaternion. How to independently limit each axis?
+  > Consider using the Jolt engine as a reference. It only keeps the "twist" from the swing/twist decomposition.
 
 */

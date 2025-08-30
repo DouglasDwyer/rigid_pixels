@@ -129,7 +129,7 @@ impl SequentialImpulse {
     /// Solves a joint-based velocity constraint.
     fn solve_joint_velocity(&self, constraint: &mut Constraint, world: &mut PixelWorld, delta_time: f32, apply_baumgarte: bool) {
         let delta_impulse = self.solve_joint_linear_velocity(constraint, world, delta_time, apply_baumgarte);
-        let delta_impulsive_torque = self.solve_joint_angular_velocity(constraint, world, delta_time, apply_baumgarte);
+        let delta_impulsive_torque = 0.0;// self.solve_joint_angular_velocity(constraint, world, delta_time, apply_baumgarte);
         Self::apply_impulse(constraint, world, delta_impulse, delta_impulsive_torque);
     }
 
@@ -137,6 +137,10 @@ impl SequentialImpulse {
     fn solve_joint_linear_velocity(&self, constraint: &Constraint, world: &PixelWorld, delta_time: f32, apply_baumgarte: bool) -> Vec2 {
         let ConstraintSource::Joint(joint) = &constraint.source else { panic!("Called solve_joint_velocity on non-joint constraint") };
         
+        // Todo: could this be bad because it does not account for rotational motion far from the origin?
+        // The relative velocity only takes into account how the POINTS are moving, but the basis where we clamp is moving too.
+        // Would this be more stable if instead of relative velocity we computed velocity of point A in reference frame B (or vice versa)?
+        // What's more, the velocity per impulse would be WRONG in this case because it assumes the points overlap... can we calculate the correct one?
         let velocity_per_impulse = Self::velocity_per_impulse(constraint, world);
         let relative_displacement = constraint.relative_displacement(world);
         let relative_velocity = constraint.relative_velocity(world) - velocity_per_impulse * constraint.impulse;
@@ -151,7 +155,22 @@ impl SequentialImpulse {
         let velocity_upper_bound = Vec2::select(joint_displacement.cmpgt(joint.translation_max), Vec2::splat(substep_baumgarte), Vec2::ONE)
             * (joint.translation_max - joint_displacement) / delta_time;
 
-        let desired_velocity = world_to_joint_rotation.inverse() * joint_velocity.clamp(velocity_lower_bound, velocity_upper_bound);
+        //let clamped_velocity = joint_velocity.clamp(velocity_lower_bound, velocity_upper_bound);
+        //println!("CV mm {} for lims {} {}", clamped_velocity - joint_velocity, joint.translation_min, joint.translation_max);
+
+        let mut clamped_velocity = Vec2::ZERO;
+
+        for i in 0..2 {
+            if joint.translation_min[i] != 0.0 || joint.translation_max[i] != 0.0 {
+                clamped_velocity[i] = joint_velocity[i];
+            }
+            else {
+                clamped_velocity[i] = -substep_baumgarte * joint_displacement[i] / delta_time;
+            }
+        }
+        println!("CV {clamped_velocity} {joint_velocity} {relative_velocity}");
+
+        let desired_velocity = world_to_joint_rotation.inverse() * clamped_velocity;
         let velocity_delta = desired_velocity - relative_velocity;
 
         let total_impulse = (velocity_per_impulse.inverse() * velocity_delta).clamp_length_max(joint.max_force * delta_time);
@@ -169,7 +188,7 @@ impl SequentialImpulse {
         let rotation_b = world.objects[constraint.objects()[1]].transform.rotation;
         let angle_difference = Vec2::from_angle(rotation_b).angle_between(Vec2::from_angle(rotation_a));
 
-        // todo here: figure out how to clamp the angles...
+        // todo here: figure out how to clamp the angles (and ensure rotational freedom when desired)...
         let substep_baumgarte = if apply_baumgarte { self.config.baumgarte / self.config.substeps as f32 } else { 0.0 };
         let angular_velocity_to_kill = relative_angular_velocity - substep_baumgarte * angle_difference / delta_time;
         let torque = -angular_velocity_per_impulsive_torque.recip() * angular_velocity_to_kill;

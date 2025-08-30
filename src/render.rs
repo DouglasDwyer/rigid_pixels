@@ -22,6 +22,7 @@ impl Renderer {
     fn draw_world(&self, physics: &PhysicsEngine, world: &PixelWorld) {
         clear_background(Color::new(0.8, 0.2, 0.6, 1.0));
         self.draw_objects(world);
+        self.draw_joints(world);
         self.draw_contacts(physics.detector.contacts());
     }
 
@@ -34,6 +35,76 @@ impl Renderer {
             draw_circle(position.x, position.y, 2.0, WHITE);
             Self::draw_arrow(position, end_position, GREEN);
         }
+    }
+
+    /// Draws a visual representation of all present joints.
+    fn draw_joints(&self, world: &PixelWorld) {
+        let screen_world_matrix = self.camera.screen_world_matrix(vec2(screen_width(), screen_height()), screen_dpi_scale());
+        for joint in &world.joints {
+            self.draw_joint(joint, world, &screen_world_matrix);
+        }
+    }
+
+    /// Draws a visual representation of a joint, including basis coordinates, relative position vectors,
+    /// and a connecting line.
+    fn draw_joint(&self, joint: &Joint, world: &PixelWorld, screen_world_matrix: &Mat3) {
+        self.draw_joint_vectors(joint, world, screen_world_matrix);
+        self.draw_translational_limits(joint, world, screen_world_matrix);
+        self.draw_joint_basis(joint, world, screen_world_matrix);
+    }
+
+    /// Draws basis vectors for the two ends of the provided joint.
+    fn draw_joint_basis(&self, joint: &Joint, world: &PixelWorld, screen_world_matrix: &Mat3) {
+        self.draw_relative_basis(&world.objects[joint.objects[0]], joint.local_transform[0], screen_world_matrix);
+        self.draw_relative_basis(&world.objects[joint.objects[1]], joint.local_transform[1], screen_world_matrix);
+    }
+
+    /// Draws lines to visualize the minimum/maximum joint bounds.
+    fn draw_translational_limits(&self, joint: &Joint, world: &PixelWorld, screen_world_matrix: &Mat3) {
+        let object = &world.objects[joint.objects[1]];
+        let transform = joint.local_transform[1];
+        
+        let center_pixels = screen_world_matrix.transform_point2(object.transform * transform.position);
+        let mut basis_to_world = object.transform * transform;
+        basis_to_world.position = Vec2::ZERO;
+
+        for (index, direction) in [Vec2::X, Vec2::Y].into_iter().enumerate() {
+            let screen_direction = screen_world_matrix.transform_vector2(basis_to_world * direction);
+            if f32::MIN < joint.translation_min[index] {
+                let minimum_displacement = joint.translation_min[index] * screen_direction;
+                draw_line(center_pixels.x, center_pixels.y, center_pixels.x + minimum_displacement.x, center_pixels.y + minimum_displacement.y, 1.0, WHITE);
+            }
+            if joint.translation_max[index] < f32::MAX {
+                let maximum_displacement = joint.translation_max[index] * screen_direction;
+                draw_line(center_pixels.x, center_pixels.y, center_pixels.x + maximum_displacement.x, center_pixels.y + maximum_displacement.y, 1.0, WHITE);
+            }
+        }
+    }
+
+    /// Draws relative position vectors and a connecting line for the given joint.
+    fn draw_joint_vectors(&self, joint: &Joint, world: &PixelWorld, screen_world_matrix: &Mat3) {
+        self.draw_relative_position(&world.objects[joint.objects[0]], joint.local_transform[0].position, screen_world_matrix);
+        self.draw_relative_position(&world.objects[joint.objects[1]], joint.local_transform[1].position, screen_world_matrix);
+    }
+
+    /// Draws a relative position vector from an object to a local position on it.
+    fn draw_relative_basis(&self, object: &PixelObject, transform: Transform, screen_world_matrix: &Mat3) {
+        let mut basis_to_world = object.transform * transform;
+        basis_to_world.position = Vec2::ZERO;
+        let x_direction = 0.5 * screen_world_matrix.transform_vector2(basis_to_world * Vec2::X);
+        let y_direction = 0.5 * screen_world_matrix.transform_vector2(basis_to_world * Vec2::Y);
+
+        let center_pixels = screen_world_matrix.transform_point2(object.transform * transform.position);
+
+        draw_line(center_pixels.x, center_pixels.y, center_pixels.x + x_direction.x, center_pixels.y + x_direction.y, 2.0, Color::new(1.0, 0.0, 0.0, 1.0));
+        draw_line(center_pixels.x, center_pixels.y, center_pixels.x + y_direction.x, center_pixels.y + y_direction.y, 2.0, Color::new(0.0, 1.0, 0.0, 1.0));
+    }
+
+    /// Draws a relative position vector from an object to a local position on it.
+    fn draw_relative_position(&self, object: &PixelObject, local_position: Vec2, screen_world_matrix: &Mat3) {
+        let start_pixels = screen_world_matrix.transform_point2(object.transform.position);
+        let end_pixels = screen_world_matrix.transform_point2(object.transform * local_position);
+        draw_line(start_pixels.x, start_pixels.y, end_pixels.x, end_pixels.y, 1.0, LIGHTGRAY.with_alpha(0.5));
     }
 
     /// Draws all objects in the world.
