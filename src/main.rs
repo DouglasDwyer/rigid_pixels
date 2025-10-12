@@ -271,16 +271,16 @@ pub struct JointId(u32);
 async fn main() {
     set_window_size(1000, 1000);
     let mut simulation = Simulation::new(PhysicsEngine {
-        detector: Detector::new(DetectorKind::Speculative { include_external_forces: true, mode: SpeculativeStepMode::Midpoint }),
+        detector: Detector::new(DetectorKind::Naive),
         solver: Solver::SequentialImpulse(SequentialImpulse::new(SolverConfig {
             baumgarte: 0.2,
-            relaxation_iterations: 0,
-            substeps: 1,
-            velocity_iterations: 8,
+            relaxation_iterations: 1,
+            substeps: 6,
+            velocity_iterations: 1,
             warm_starting: true
         })),
         delta_time: 0.015
-    }, get_time(), scene::hinge_joint());
+    }, get_time(), scene::upside_down_box_pyramid());
 
     loop {
         simulation.update(get_time());
