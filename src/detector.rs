@@ -176,20 +176,23 @@ impl Detector {
                     }
                     
                     let contact_point = b_pixel_position - 0.5 * delta;
-                    let penetration = ((normal.signum() - delta) / normal).min_element();
+                    let penetration_length = ((normal.signum() - delta) / normal).min_element();
 
                     let world_point = a_to_world_space.transform_point2(contact_point);
+                    let world_normal = a_to_world_space.transform_vector2(normal);
+                    let world_pos_a = world_point + 0.5 * penetration_length * world_normal;
+                    let world_pos_b = world_point - 0.5 * penetration_length * world_normal;
 
                     contacts.push(Contact {
                         objects: [a.id, b.id],
                         pixel_position: [position, corner],
                         local_position: [
-                            a.transform.to_matrix().inverse().transform_point2(world_point),
-                            b.transform.to_matrix().inverse().transform_point2(world_point)
+                            a.transform.to_matrix().inverse().transform_point2(world_pos_a),
+                            b.transform.to_matrix().inverse().transform_point2(world_pos_b)
                         ],
                         material: PixelMaterial::mix(a.body.material(), b.body.material()),
-                        penetration,
-                        normal: a_to_world_space.transform_vector2(normal),
+                        normal: world_normal,
+                        penetration: 0.0,
                         position: world_point
                     });
                 }

@@ -52,9 +52,9 @@ pub fn box_pyramid() -> PixelWorld {
 pub fn upside_down_box_pyramid() -> PixelWorld {
     let mut world = PixelWorld::default();
     world.objects.insert(create_floor1(ROUGH_SOFT));
-    world.objects.insert(create_box(GOLD, ROUGH_SOFT, Transform { position: vec2(8.25, 17.25), rotation: 0.0 }, uvec2(12, 5)));
-    world.objects.insert(create_box(GOLD, ROUGH_SOFT, Transform { position: vec2(8.5, 12.5), rotation: 0.0 }, uvec2(8, 3)));
-    world.objects.insert(create_box(GOLD, ROUGH_SOFT, Transform { position: vec2(9.0, 8.5), rotation: 0.0 }, uvec2(5, 2)));
+    world.objects.insert(create_box(ORANGE, ROUGH_SOFT, Transform { position: vec2(8.25, 17.25), rotation: 0.0 }, uvec2(12, 5)));
+    world.objects.insert(create_box(GREEN, ROUGH_SOFT, Transform { position: vec2(8.5, 12.5), rotation: 0.0 }, uvec2(8, 3)));
+    world.objects.insert(create_box(SKYBLUE, ROUGH_SOFT, Transform { position: vec2(9.0, 8.5), rotation: 0.0 }, uvec2(5, 2)));
     world
 }
 

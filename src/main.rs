@@ -115,8 +115,6 @@ pub struct Contact {
     pub local_position: [Vec2; 2],
     /// The material properties at the contact.
     pub material: PixelMaterial,
-    /// The required distance (projected along the normal vector)
-    /// between the contact point on B and the contact point on A.
     pub penetration: f32,
     /// The normal (in world space) of object `0`'s surface.
     pub normal: Vec2,
@@ -134,7 +132,7 @@ impl Contact {
     /// relative to the required `penetration` for this contact.
     pub fn separation(&self, world: &PixelWorld) -> f32 {
         self.normal.dot(world.objects[self.objects[1]].transform * self.local_position[1]
-            - world.objects[self.objects[0]].transform * self.local_position[0]) - self.penetration        
+            - world.objects[self.objects[0]].transform * self.local_position[0]) - self.penetration
     }
 
     /// Swaps the order of the objects involved in the collision.
@@ -271,7 +269,7 @@ pub struct JointId(u32);
 async fn main() {
     set_window_size(1000, 1000);
     let mut simulation = Simulation::new(PhysicsEngine {
-        detector: Detector::new(DetectorKind::Naive),
+        detector: Detector::new(DetectorKind::Speculative { include_external_forces: true, mode: SpeculativeStepMode::Equidistant }),
         solver: Solver::SequentialImpulse(SequentialImpulse::new(SolverConfig {
             baumgarte: 0.2,
             relaxation_iterations: 1,
