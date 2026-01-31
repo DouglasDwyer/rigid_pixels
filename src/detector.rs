@@ -131,33 +131,24 @@ impl Detector {
         let b_to_a = a_to_world_space.inverse() * b.body.world_grid_matrix(b.transform);
 
         for corner in b.body.corners().iter().copied() {
-            let mut closest_edge_sq = None;
-            let start_i = contacts.len();
-
             let b_pixel_position = b_to_a.transform_point2(corner.as_vec2() + Vec2::splat(0.5));
             let b_neighbors = b.body.neighbors(corner);
             let min_pixel = (b_pixel_position - Vec2::splat(0.5)).floor().as_ivec2().as_uvec2();
-            for offset in [UVec2::ZERO, UVec2::X, UVec2::Y, UVec2::ONE] {
+
+            let all_offsets = [UVec2::ZERO, UVec2::X, UVec2::Y, UVec2::ONE];
+            let mut enabled_offsets = [true; 4];
+
+            for (i, offset) in all_offsets.into_iter().enumerate() {
+                if !enabled_offsets[i] {
+                    continue;
+                }
+
                 let position = min_pixel + offset;
                 if a.body.grid().get_or_empty(position) {
                     let delta = b_pixel_position - (position.as_vec2() + Vec2::splat(0.5));
                     let neighbors = a.body.neighbors(position);
 
-                    if neighbors.is_all() {
-                        continue;
-                    }
-                    let is_edge = neighbors.kind() != PixelKind::Corner;
-                    if is_edge {
-                        let delta_len_sq = delta.length_squared();
-                        if closest_edge_sq.is_none_or(|x| delta_len_sq < x) {
-                            contacts.truncate(start_i);
-                            closest_edge_sq = Some(delta_len_sq);
-                        }
-                        else {
-                            continue;
-                        }
-                    }
-                    else if !allow_corner_corner || closest_edge_sq.is_some() {
+                    if neighbors.is_all() || (!allow_corner_corner && neighbors.kind() == PixelKind::Corner) {
                         continue;
                     }
 
@@ -167,21 +158,27 @@ impl Detector {
                         continue;
                     }
 
-                    if neighbors.kind() == PixelKind::Corner {
-                        let rotated_normal = -normal.rotate(Vec2::from_angle(a.transform.rotation - b.transform.rotation));
-                        let clamped_rotated = Self::clamp_normal(rotated_normal, b_neighbors);
-                        if clamped_rotated != rotated_normal {
-                            normal = -clamped_rotated.rotate(Vec2::from_angle(b.transform.rotation - a.transform.rotation));
-                        }
-                    }
-                    
-                    let contact_point = b_pixel_position - 0.5 * delta;
-                    let penetration_length = ((normal.signum() - delta) / normal).min_element();
+                    let penetration_length = normal.dot(delta) - 1.0;
 
+                    if 0.0 < penetration_length {
+                        continue;
+                    }
+
+                    if neighbors.kind() == PixelKind::EdgeX {
+                        let other_offset = offset ^ uvec2(0, 1);
+                        enabled_offsets[all_offsets.into_iter().position(|x| x == other_offset).unwrap()] = false;
+                    }
+
+                    if neighbors.kind() == PixelKind::EdgeY {
+                        let other_offset = offset ^ uvec2(1, 0);
+                        enabled_offsets[all_offsets.into_iter().position(|x| x == other_offset).unwrap()] = false;
+                    }
+
+                    let contact_point = b_pixel_position - 0.5 * normal;
                     let world_point = a_to_world_space.transform_point2(contact_point);
                     let world_normal = a_to_world_space.transform_vector2(normal);
-                    let world_pos_a = world_point + 0.5 * penetration_length * world_normal;
-                    let world_pos_b = world_point - 0.5 * penetration_length * world_normal;
+                    let world_pos_a = world_point - 0.5 * penetration_length * world_normal;
+                    let world_pos_b = world_point + 0.5 * penetration_length * world_normal;
 
                     contacts.push(Contact {
                         objects: [a.id, b.id],
@@ -192,7 +189,6 @@ impl Detector {
                         ],
                         material: PixelMaterial::mix(a.body.material(), b.body.material()),
                         normal: world_normal,
-                        penetration: 0.0,
                         position: world_point
                     });
                 }
