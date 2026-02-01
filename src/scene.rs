@@ -24,8 +24,8 @@ pub fn simple() -> PixelWorld {
 /// A world with a plane and a single box.
 pub fn single_box() -> PixelWorld {
     let mut world = PixelWorld::default();
-    world.objects.insert(create_floor1(ROUGH_SOFT));
-    world.objects.insert(create_box(GOLD, ROUGH_SOFT, Transform { position: vec2(9.0, 12.5), rotation: 0.0 }, uvec2(3, 2)));
+    world.objects.insert(create_floor1(SMOOTH_HARD));
+    world.objects.insert(create_box(GOLD, SMOOTH_HARD, Transform { position: vec2(9.0, 12.5), rotation: 0.0 }, uvec2(3, 2)));
     world
 }
 

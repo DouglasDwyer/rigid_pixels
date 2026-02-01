@@ -19,21 +19,35 @@ pub enum DetectorKind {
     }
 }
 
+/// The shape of voxels used during collision detection.
+#[derive(Copy, Clone, Debug)]
+pub enum GeometryKind {
+    /// Voxels will be treated purely as spheres. All collision detection
+    /// tests will happen against them.
+    Sphere,
+    /// When two voxels touch, a smooth surface will extend between them
+    /// (rather than just treating them each as a sphere).
+    Surface
+}
+
 /// Handles detection of collisions between objects in the world.
 #[derive(Debug)]
 pub struct Detector {
     /// The last set of contacts to be generated.
     contacts: Vec<Contact>,
     /// Which algorithm will be used for detection.
-    kind: DetectorKind,
+    detector_kind: DetectorKind,
+    /// The shape of voxels used during collision detection.
+    geometry_kind: GeometryKind
 }
 
 impl Detector {
     /// Creates a new detector.
-    pub fn new(kind: DetectorKind) -> Self {
+    pub fn new(detector_kind: DetectorKind, geometry_kind: GeometryKind) -> Self {
         Self {
             contacts: Vec::new(),
-            kind
+            detector_kind,
+            geometry_kind
         }
     }
 
@@ -45,15 +59,15 @@ impl Detector {
     /// Generates contact points between objects in `world` to prevent interpenetration.
     pub fn update(&mut self, world: &PixelWorld, delta_time: f32) {
         self.contacts.clear();
-        match self.kind {
-            DetectorKind::Naive => Self::update_naive(world, &mut self.contacts),
+        match self.detector_kind {
+            DetectorKind::Naive => Self::update_naive(world, &mut self.contacts, self.geometry_kind),
             DetectorKind::Speculative { include_external_forces, mode }
-                => Self::update_speculative(include_external_forces, mode, world, delta_time, &mut self.contacts),
+                => Self::update_speculative(include_external_forces, mode, world, delta_time, &mut self.contacts, self.geometry_kind),
         }
     }
 
     /// Detects all present contact points between objects in `world`. Does not account for fast-moving objects.
-    fn update_naive(world: &PixelWorld, contacts: &mut Vec<Contact>) {
+    fn update_naive(world: &PixelWorld, contacts: &mut Vec<Contact>, geometry_kind: GeometryKind) {
         for ((id_a, object_a), (id_b, object_b)) in Self::iter_object_pairs(world) {
             Self::gather_contacts(DetectorObject {
                 body: &object_a.body,
@@ -64,12 +78,12 @@ impl Detector {
                 body: &object_b.body,
                 id: id_b,
                 transform: object_b.transform
-            }, contacts);
+            }, contacts, geometry_kind);
         }
     }
 
     /// Detects contact points between objects. Uses substepping for fast pairs of objects to prevent interpenetration.
-    fn update_speculative(include_external_forces: bool, mode: SpeculativeStepMode, world: &PixelWorld, delta_time: f32, contacts: &mut Vec<Contact>) {
+    fn update_speculative(include_external_forces: bool, mode: SpeculativeStepMode, world: &PixelWorld, delta_time: f32, contacts: &mut Vec<Contact>, geometry_kind: GeometryKind) {
         let initial_i = contacts.len();
         for ((id_a, object_a), (id_b, object_b)) in Self::iter_object_pairs(world) {
             let max_speed = Self::relative_speed_bound(object_a, object_b, delta_time);
@@ -90,7 +104,7 @@ impl Detector {
                     body: &object_b.body,
                     id: id_b,
                     transform: b_transform_new
-                }, contacts);
+                }, contacts, geometry_kind);
 
                 if i != 0 {
                     let mut clear_i = start_i;
@@ -120,13 +134,13 @@ impl Detector {
     }
 
     /// Gathers all contacts between `a` and `b`.
-    fn gather_contacts(a: DetectorObject, b: DetectorObject, contacts: &mut Vec<Contact>) {
-        Self::gather_corner_contacts(a, b, contacts, true);
-        Self::gather_corner_contacts(b, a, contacts, false);
+    fn gather_contacts(a: DetectorObject, b: DetectorObject, contacts: &mut Vec<Contact>, geometry_kind: GeometryKind) {
+        Self::gather_corner_contacts(a, b, contacts, geometry_kind, true);
+        Self::gather_corner_contacts(b, a, contacts, geometry_kind, false);
     }
 
     /// Gathers all contact constraints produced by corners of object `a` colliding with `b`.
-    fn gather_corner_contacts(a: DetectorObject, b: DetectorObject, contacts: &mut Vec<Contact>, allow_corner_corner: bool) {
+    fn gather_corner_contacts(a: DetectorObject, b: DetectorObject, contacts: &mut Vec<Contact>, geometry_kind: GeometryKind, allow_corner_corner: bool) {
         let a_to_world_space = a.body.world_grid_matrix(a.transform);
         let b_to_a = a_to_world_space.inverse() * b.body.world_grid_matrix(b.transform);
 
@@ -152,17 +166,72 @@ impl Detector {
                         continue;
                     }
 
-                    let mut normal = Self::clamp_normal(delta, neighbors);
+                    match geometry_kind {
+                        GeometryKind::Sphere => {
+                            let mut normal = Self::clamp_normal(delta, neighbors);
 
-                    if normal == Vec2::ZERO {
-                        continue;
-                    }
+                            if normal == Vec2::ZERO {
+                                continue;
+                            }
 
-                    let penetration_length = normal.dot(delta) - 1.0;
+                            if 1.0 < delta.length_squared() {
+                                continue;
+                            }
 
-                    if 0.0 < penetration_length {
-                        continue;
-                    }
+                            // Calculate distance required to displace sphere along normal for separation
+                            let s = delta.dot(normal);
+                            let penetration_length = -2.0 * s + 2.0 * (s.powi(2) - (delta.length_squared() - 1.0)).sqrt();
+
+                            let contact_point = b_pixel_position - 0.5 * delta;
+                            let world_point = a_to_world_space.transform_point2(contact_point);
+                            let world_normal = a_to_world_space.transform_vector2(normal);
+                            let world_pos_a = world_point + 0.5 * penetration_length * world_normal;
+                            let world_pos_b = world_point - 0.5 * penetration_length * world_normal;
+
+                            contacts.push(Contact {
+                                objects: [a.id, b.id],
+                                pixel_position: [position, corner],
+                                local_position: [
+                                    a.transform.to_matrix().inverse().transform_point2(world_pos_a),
+                                    b.transform.to_matrix().inverse().transform_point2(world_pos_b)
+                                ],
+                                material: PixelMaterial::mix(a.body.material(), b.body.material()),
+                                normal: world_normal,
+                                position: world_point
+                            });
+                        },
+                        GeometryKind::Surface => {
+                            let mut normal = Self::clamp_normal(delta, neighbors);
+
+                            if normal == Vec2::ZERO {
+                                continue;
+                            }
+
+                            let penetration_length = normal.dot(delta) - 1.0;
+
+                            if 0.0 < penetration_length {
+                                continue;
+                            }
+
+                            let contact_point = b_pixel_position - 0.5 * normal;
+                            let world_point = a_to_world_space.transform_point2(contact_point);
+                            let world_normal = a_to_world_space.transform_vector2(normal);
+                            let world_pos_a = world_point - 0.5 * penetration_length * world_normal;
+                            let world_pos_b = world_point + 0.5 * penetration_length * world_normal;
+
+                            contacts.push(Contact {
+                                objects: [a.id, b.id],
+                                pixel_position: [position, corner],
+                                local_position: [
+                                    a.transform.to_matrix().inverse().transform_point2(world_pos_a),
+                                    b.transform.to_matrix().inverse().transform_point2(world_pos_b)
+                                ],
+                                material: PixelMaterial::mix(a.body.material(), b.body.material()),
+                                normal: world_normal,
+                                position: world_point
+                            });
+                        },
+                    };
 
                     if neighbors.kind() == PixelKind::EdgeX {
                         let other_offset = offset ^ uvec2(0, 1);
@@ -173,24 +242,6 @@ impl Detector {
                         let other_offset = offset ^ uvec2(1, 0);
                         enabled_offsets[all_offsets.into_iter().position(|x| x == other_offset).unwrap()] = false;
                     }
-
-                    let contact_point = b_pixel_position - 0.5 * normal;
-                    let world_point = a_to_world_space.transform_point2(contact_point);
-                    let world_normal = a_to_world_space.transform_vector2(normal);
-                    let world_pos_a = world_point - 0.5 * penetration_length * world_normal;
-                    let world_pos_b = world_point + 0.5 * penetration_length * world_normal;
-
-                    contacts.push(Contact {
-                        objects: [a.id, b.id],
-                        pixel_position: [position, corner],
-                        local_position: [
-                            a.transform.to_matrix().inverse().transform_point2(world_pos_a),
-                            b.transform.to_matrix().inverse().transform_point2(world_pos_b)
-                        ],
-                        material: PixelMaterial::mix(a.body.material(), b.body.material()),
-                        normal: world_normal,
-                        position: world_point
-                    });
                 }
             }
         }
