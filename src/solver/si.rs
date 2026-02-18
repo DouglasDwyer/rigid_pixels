@@ -8,7 +8,7 @@ pub struct SequentialImpulse {
     /// The configuration to use.
     config: SolverConfig,
     /// A cache containing forces from the previous frame, to use with warm starting.
-    impulse_cache: HashMap<ConstraintId, CachedImpulse>,
+    force_cache: HashMap<ConstraintId, CachedImpulse>,
 }
 
 impl SequentialImpulse {
@@ -23,18 +23,18 @@ impl SequentialImpulse {
 
         Self {
             config,
-            impulse_cache
+            force_cache: impulse_cache
         }
     }
 
     /// Solves all contacts and joints, then updates the position/velocity of every object in `world`.
     pub fn solve(&mut self, contacts: &[Contact], world: &mut PixelWorld, delta_time: f32) {
-        let mut constraints = world.joints.iter().map(|x| Constraint::new(x.clone(), world, &self.impulse_cache))
-            .chain(contacts.iter().map(|x| Constraint::new(x.clone(), world, &self.impulse_cache)))
+        let substep_time = delta_time / self.config.substeps as f32;
+
+        let mut constraints = world.joints.iter().map(|x| Constraint::new(x.clone(), world, &self.force_cache, substep_time))
+            .chain(contacts.iter().map(|x| Constraint::new(x.clone(), world, &self.force_cache, substep_time)))
             .collect::<Vec<_>>();
 
-        //println!("BEGIN SOLVE!");
-        let substep_time = delta_time / self.config.substeps as f32;
         for _ in 0..self.config.substeps {
             self.apply_impulses(&mut constraints, world);
             integrate_external_forces(world, substep_time);
@@ -45,8 +45,6 @@ impl SequentialImpulse {
                 }
             }
 
-            //println!("THE FINAL {}", constraints[0].relative_velocity(world) - Self::velocity_per_impulse(&constraints[0], world) * constraints[0].impulse);
-
             integrate_velocities(world, substep_time);
 
             for _ in 0..self.config.relaxation_iterations {
@@ -56,9 +54,7 @@ impl SequentialImpulse {
             }
         }
 
-        //println!("cuns {:?}", constraints.iter().map(|x| x.impulse).collect::<Vec<_>>());
-
-        self.cache_constraint_forces(&constraints);
+        self.cache_constraint_forces(&constraints, substep_time);
 
         for constraint in &mut constraints {
             self.solve_restitution(constraint, world);
@@ -211,13 +207,13 @@ impl SequentialImpulse {
 
     /// Caches the forces from this tick. The forces will be used in warm-starting
     /// the constraints for the next tick.
-    fn cache_constraint_forces(&mut self, constraints: &[Constraint]) {
-        self.impulse_cache.clear();
+    fn cache_constraint_forces(&mut self, constraints: &[Constraint], substep_time: f32) {
+        self.force_cache.clear();
         if self.config.warm_starting {
             for constraint in constraints {
-                self.impulse_cache.insert(constraint.id(), CachedImpulse {
-                    impulse: constraint.impulse,
-                    impulsive_torque: constraint.impulsive_torque
+                self.force_cache.insert(constraint.id(), CachedImpulse {
+                    force: constraint.impulse / substep_time,
+                    torque: constraint.impulsive_torque / substep_time
                 });
             }
         }
@@ -333,7 +329,7 @@ struct Constraint {
 impl Constraint {
     /// Creates a new constraint from the provided source. Attempts to load
     /// the impulse from the cache, if possible.
-    pub fn new(source: impl Into<ConstraintSource>, world: &PixelWorld, impulse_cache: &HashMap<ConstraintId, CachedImpulse>) -> Self {
+    pub fn new(source: impl Into<ConstraintSource>, world: &PixelWorld, force_cache: &HashMap<ConstraintId, CachedImpulse>, substep_time: f32) -> Self {
         let mut result = Self {
             impulse: Vec2::ZERO,
             impulsive_torque: 0.0,
@@ -341,7 +337,7 @@ impl Constraint {
             source: source.into(),
         };
 
-        result.initialize(world, impulse_cache);
+        result.initialize(world, force_cache, substep_time);
 
         result
     }
@@ -395,10 +391,10 @@ impl Constraint {
     }
 
     /// Initializes the impulse and relative velocity when the contact is first created.
-    fn initialize(&mut self, world: &PixelWorld, impulse_cache: &HashMap<ConstraintId, CachedImpulse>) {
-        if let Some(cached) = impulse_cache.get(&self.id()) {
-            self.impulse = cached.impulse;
-            self.impulsive_torque = cached.impulsive_torque;
+    fn initialize(&mut self, world: &PixelWorld, force_cache: &HashMap<ConstraintId, CachedImpulse>, substep_time: f32) {
+        if let Some(cached) = force_cache.get(&self.id()) {
+            self.impulse = substep_time * cached.force;
+            self.impulsive_torque = substep_time * cached.torque;
         }
 
         self.original_relative_velocity = self.relative_velocity(world);
@@ -427,9 +423,9 @@ enum ConstraintId {
 #[derive(Copy, Clone, Debug)]
 struct CachedImpulse {
     /// The total amount of impulse applied.
-    pub impulse: Vec2,
+    pub force: Vec2,
     /// The amount of torque applied for rotation constraints.
-    pub impulsive_torque: f32,
+    pub torque: f32,
 }
 
 impl From<Contact> for ConstraintSource {

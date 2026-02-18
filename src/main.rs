@@ -272,11 +272,11 @@ async fn main() {
         solver: Solver::SequentialImpulse(SequentialImpulse::new(SolverConfig {
             baumgarte: 0.2,
             relaxation_iterations: 1,
-            substeps: 6,
+            substeps: 4,
             velocity_iterations: 1,
             warm_starting: true
         })),
-        delta_time: 0.015
+        delta_time: 0.02
     }, get_time(), scene::upside_down_box_pyramid());
 
     loop {
