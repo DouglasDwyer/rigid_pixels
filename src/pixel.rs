@@ -3,6 +3,7 @@ use bitvec::prelude::*;
 use crate::*;
 use macroquad::prelude::*;
 use slotmap::*;
+use std::cell::*;
 use std::ops::*;
 
 new_key_type! {
@@ -75,7 +76,7 @@ pub struct PixelObject {
     pub color: Color,
     /// Any external forces added to the object.
     pub forces: ForceAccumulator,
-    /// The location of the object.
+    /// The location of the object's center of mass.
     pub transform: Transform,
     /// The motion of the object.
     pub velocity: Velocity
@@ -376,6 +377,22 @@ impl PixelGrid {
         }
     }
 
+    /// Applies the bitwise `&` operator to `self` and `other`, writing the result into `self`.
+    pub fn and_with(&mut self, other: &Self) {
+        assert_eq!(self.resolution(), other.resolution());
+        self.values &= &other.values;
+    }
+
+    /// Gets the total number of pixels set to `true`.
+    pub fn count_ones(&self) -> usize {
+        self.values.count_ones()
+    }
+
+    /// Gets the total number of pixels set to `false`.
+    pub fn count_zeros(&self) -> usize {
+        self.values.count_zeros()
+    }
+
     /// Gets the value of the pixel at `position`.
     pub fn get(&self, position: UVec2) -> bool {
         assert!(position.cmplt(self.resolution).all(), "{position} was out-of-bounds for grid of resolution {}", self.resolution);
@@ -392,6 +409,30 @@ impl PixelGrid {
         }
     }
 
+    /// Gets an iterator over all neighborhoods of this grid.
+    pub fn neighborhoods(&self) -> impl IntoIterator<Item = Self> {
+        let mut seen = Self::new(self.resolution);
+        let mut result = Vec::new();
+
+        for y in 0..self.resolution.y {
+            for x in 0..self.resolution.x {
+                let position = uvec2(x, y);
+                if !seen.get(position) && let Some(neighborhood) = self.find_neighborhood(position) {
+                    seen.or_with(&neighborhood);
+                    result.push(neighborhood);
+                }
+            }
+        }
+
+        result
+    }
+
+    /// Applies the bitwise `|` operator to `self` and `other`, writing the result into `self`.
+    pub fn or_with(&mut self, other: &Self) {
+        assert_eq!(self.resolution(), other.resolution());
+        self.values |= &other.values;
+    }
+
     /// Sets the value of the pixel at `position`.
     pub fn set(&mut self, position: UVec2, value: bool) -> bool {
         self.values.replace((position.x as u32 + self.resolution.x * position.y as u32) as usize, value)
@@ -405,5 +446,37 @@ impl PixelGrid {
     /// Gets an iterator over the positions of pixels with value `true`.
     pub fn iter(&self) -> impl '_ + Iterator<Item = UVec2> {
         self.values.iter_ones().map(|index| uvec2(index as u32 % self.resolution.x, index as u32 / self.resolution.x))
+    }
+
+    /// Searches for the connected component that contains `position`.
+    /// Returns [`None`] if the pixel at `position` was `false`.
+    fn find_neighborhood(&self, position: UVec2) -> Option<Self> {
+        thread_local! {
+            // Wrap in RefCell to allow mutation (push/pop/clear)
+            static TEMPORARY_STACK: RefCell<Vec<UVec2>> = RefCell::new(Vec::new());
+        }
+
+        TEMPORARY_STACK.with_borrow_mut(|temporary_stack| {
+            temporary_stack.clear();
+            
+            if self.get(position) {
+                let mut result = Self::new(self.resolution);
+                temporary_stack.push(position);
+
+                while let Some(next) = temporary_stack.pop() {
+                    if next.cmplt(self.resolution()).all()
+                        && self.get(next)
+                        && !result.get(next) {
+                        result.set(next, true);
+                        temporary_stack.extend([IVec2::NEG_X, IVec2::NEG_Y, IVec2::X, IVec2::Y].map(|x| next.wrapping_add(x.as_uvec2())));
+                    }
+                }
+
+                Some(result)
+            }
+            else {
+                None
+            }
+        })
     }
 }

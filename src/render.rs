@@ -163,7 +163,7 @@ impl Renderer {
 
         if !ctx.wants_pointer_input() {
             ctx.input(|i| {
-                if i.pointer.is_decidedly_dragging() && i.pointer.secondary_down() {
+                if i.pointer.is_decidedly_dragging() && self.dragged_object.is_none() && i.pointer.secondary_down() {
                     self.camera.position += vec2(-i.pointer.delta().x, i.pointer.delta().y) / self.camera.zoom;
                 }
                 
@@ -205,32 +205,79 @@ impl Renderer {
         ctx.input(|i| {
             let screen_world_matrix = self.camera.screen_world_matrix(vec2(screen_width(), screen_height()), screen_dpi_scale());
             if !wants_pointer_input
-                && i.pointer.primary_down()
                 && let Some(latest_pos) = i.pointer.latest_pos() {
                 let position = screen_world_matrix.inverse().transform_point2(vec2(latest_pos.x, latest_pos.y));
-                if let Some(dragged) = self.dragged_object {
-                    let spring = Spring {
-                        k: 1000.0,
-                        rest_length: 0.0,
-                        drag: 250.0,
-                        origin: position
-                    };
 
-                    let object = &mut world.objects[dragged.id];
-                    let world_space_point = object.transform.to_matrix().transform_point2(dragged.relative_position);
-                    let point_velocity = Vec2::Y.rotate(world_space_point - object.transform.position) * object.velocity.angular + object.velocity.linear;
-                    
-                    //object.velocity.angular = 0.0;
-                    object.add_force(world_space_point, spring.force(world_space_point, point_velocity));
+                if i.pointer.secondary_down() {
+                    if let Some(dragged) = self.dragged_object {
+                        let object = &mut world.objects[dragged.id];
+                        let mass = object.body.inverse_mass().max(0.01).recip();
+
+                        let spring = Spring {
+                            k: 80.0 * mass,
+                            rest_length: 0.0,
+                            drag: 20.0 * mass,
+                            origin: position
+                        };
+
+                        let world_space_point = object.transform.to_matrix().transform_point2(dragged.relative_position);
+                        let point_velocity = Vec2::Y.rotate(world_space_point - object.transform.position) * object.velocity.angular + object.velocity.linear;
+                        
+                        object.velocity *= 0.15f32.powf(i.stable_dt);
+                        object.add_force(world_space_point, spring.force(world_space_point, point_velocity));
+                    }
+                    else if i.pointer.secondary_pressed() {
+                        self.select_dragged_object(position, world);
+                    }
                 }
-                else if i.pointer.primary_pressed() {
-                    self.select_dragged_object(position, world);
+                else {
+                    self.dragged_object = None;
+                    if i.pointer.primary_down() {
+                        self.destroy_at_position(position, world);
+                    }
                 }
             }
             else {
                 self.dragged_object = None;
             }
         });
+    }
+
+    /// Destroys the pixel at world-space `position`.
+    fn destroy_at_position(&mut self, position: Vec2, world: &mut PixelWorld) {
+        for (id, object) in &mut world.objects {
+            let clicked_position = object.world_grid_matrix().inverse().transform_point2(position);
+            let cell = clicked_position.floor().as_ivec2().as_uvec2();
+            if object.body.grid().get_or_empty(cell) {
+                let mut new_grid = object.body.grid().clone();
+                new_grid.set(cell, false);
+                
+                let min_corner_transform = object.world_grid_matrix().transform_point2(Vec2::ZERO);
+
+                let mut to_insert = Vec::new();
+                for neighborhood in new_grid.neighborhoods() {
+                    let can_stay_immobile = neighborhood.count_ones() > 50;
+                    let new_body = PixelBody::new(
+                        neighborhood,
+                        object.body.material(),
+                        can_stay_immobile && object.body.inverse_mass() == 0.0,
+                        can_stay_immobile && object.body.inverse_inertia_tensor() == 0.0);
+                    let new_transform = Transform::new(
+                        object.world_grid_matrix().transform_vector2(new_body.local_center_of_mass()) + min_corner_transform,
+                        object.transform.rotation);
+
+                    to_insert.push(PixelObject::new(new_body, object.color, new_transform));
+                }
+
+                world.objects.remove(id);
+                
+                for object in to_insert {
+                    world.objects.insert(object);
+                }
+                
+                break;
+            }
+        }
     }
 
     /// Selects a new object for a click at world-space `position`.
