@@ -7,6 +7,8 @@ use std::collections::*;
 pub struct SequentialImpulse {
     /// The configuration to use.
     config: SolverConfig,
+    /// Events generated during the last solver iteration.
+    events: Vec<SolverEvent>,
     /// A cache containing forces from the previous frame, to use with warm starting.
     force_cache: HashMap<ConstraintId, CachedImpulse>,
 }
@@ -20,15 +22,24 @@ impl SequentialImpulse {
     /// Creates a new sequential impulse solver.
     pub fn new(config: SolverConfig) -> Self {
         let impulse_cache = HashMap::new();
+        let events = Vec::new();
 
         Self {
             config,
+            events,
             force_cache: impulse_cache
         }
     }
 
+    /// Gets the events generated during the last solver iteration.
+    pub fn events(&self) -> &[SolverEvent] {
+        &self.events
+    }
+
     /// Solves all contacts and joints, then updates the position/velocity of every object in `world`.
     pub fn solve(&mut self, contacts: &[Contact], world: &mut PixelWorld, delta_time: f32) {
+        self.events.clear();
+        
         let substep_time = delta_time / self.config.substeps as f32;
 
         let mut constraints = world.joints.iter().map(|x| Constraint::new(x.clone(), world, &self.force_cache, substep_time))
@@ -52,12 +63,48 @@ impl SequentialImpulse {
                     self.solve_velocity(constraint, world, substep_time, false);
                 }
             }
+
+            self.sum_total_impulse(&mut constraints);
         }
 
         self.cache_constraint_forces(&constraints, substep_time);
 
         for constraint in &mut constraints {
             self.solve_restitution(constraint, world);
+        }
+
+        for constraint in &mut constraints {
+            self.solve_fracture(constraint, world, delta_time);
+        }
+    }
+
+    /// Finds contacts where the impulse exceeded [`PixelMaterial::breaking_impulse`].
+    /// Removes the excess impulse and generates a fracture event.
+    fn solve_fracture(&mut self, constraint: &mut Constraint, world: &mut PixelWorld, delta_time: f32) {
+        if let ConstraintSource::Contact(contact) = &constraint.source {
+            let total_normal_impulse = contact.normal.dot(constraint.total_impulse);
+
+            let max_immediate_impulse = contact.material.breaking_impulses[0].min(contact.material.breaking_impulses[1]);
+
+            if max_immediate_impulse < total_normal_impulse {
+                for (i, max_impulse) in contact.material.breaking_impulses.into_iter().enumerate() {
+                    if max_impulse < total_normal_impulse {
+                        self.events.push(SolverEvent::Fracture(Fracture {
+                            impulse: [-1.0, 1.0][i] * total_normal_impulse * contact.normal,
+                            local_position: contact.local_position[i],
+                            object: contact.objects[i]
+                        }));
+                    }
+                }
+
+                let excess_impulse = total_normal_impulse - max_immediate_impulse;
+                Self::apply_impulse(constraint, world, -excess_impulse * contact.normal, 0.0);
+
+                // Todo:
+                // - Use them to do breakage there
+                // - Reapply excess impulse (distribute it evenly among broken pieces @ point.)?
+                // Note: for our final simulation, we will need to split by object
+            }
         }
     }
 
@@ -218,6 +265,13 @@ impl SequentialImpulse {
             }
         }
     }
+    
+    /// Stores the total impulse from the substep.
+    fn sum_total_impulse(&mut self, constraints: &mut [Constraint]) {
+        for constraint in constraints {
+            constraint.total_impulse += constraint.impulse;
+        }
+    }
 
     /// Applies the total impulse stored in each constraint to the objects in the world.
     fn apply_impulses(&self, constraints: &mut [Constraint], world: &mut PixelWorld) {
@@ -324,6 +378,8 @@ struct Constraint {
     pub original_relative_velocity: Vec2,
     /// The source of the constraint.
     pub source: ConstraintSource,
+    /// The total impulse applied along the normal over the entire step.
+    pub total_impulse: Vec2
 }
 
 impl Constraint {
@@ -335,6 +391,7 @@ impl Constraint {
             impulsive_torque: 0.0,
             original_relative_velocity: Vec2::ZERO,
             source: source.into(),
+            total_impulse: Vec2::ZERO
         };
 
         result.initialize(world, force_cache, substep_time);

@@ -16,6 +16,9 @@ use std::ops::*;
 /// Implements logic for detecting collisions between objects.
 mod detector;
 
+/// Breaks objects up into smaller pieces for destruction physics.
+mod fracturing;
+
 /// Defines external force generators.
 mod force;
 
@@ -67,8 +70,21 @@ impl Simulation {
         while self.last_update < time {
             self.physics.detector.update(&self.world, self.physics.delta_time);
             self.physics.solver.solve(self.physics.detector.contacts(), &mut self.world, self.physics.delta_time);
+
+            for event in self.physics.solver.events() {
+                println!("{event:?}");
+            }
+
             self.last_update += self.physics.delta_time as f64;
         }
+
+        for (id, object) in &mut self.world.objects {
+            if 10000.0 < object.transform.position.abs().max_element() {
+                self.world.objects.remove(id);
+                break;
+            }
+        }
+
         self.clear_force_accumulators();
 
         self.renderer.draw(&self.physics, &mut self.world);
@@ -114,7 +130,7 @@ pub struct Contact {
     /// The offset from each object's origin to the contact in local space.
     pub local_position: [Vec2; 2],
     /// The material properties at the contact.
-    pub material: PixelMaterial,
+    pub material: PixelMaterialPair,
     /// The normal (in world space) of object `0`'s surface.
     pub normal: Vec2,
     /// The position of the contact in world space.
@@ -250,6 +266,24 @@ impl JointDescriptor {
     }
 }
 
+/// An event triggered by the interaction of objects during the collision solving process.
+#[derive(Copy, Clone, Debug)]
+pub enum SolverEvent {
+    /// A fracture occurred on an object.
+    Fracture(Fracture)
+}
+
+/// Describes a fracture that should be applied to a body.
+#[derive(Copy, Clone, Debug)]
+pub struct Fracture {
+    /// The impulse that generated the fracture.
+    pub impulse: Vec2,
+    /// The origin of the fracture, in local space.
+    pub local_position: Vec2,
+    /// The objects involved in the fracture.
+    pub object: ObjectId,
+}
+
 /// Allows for uniquely identifying a contact across frames.
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct ContactId {
@@ -268,7 +302,8 @@ pub struct JointId(u32);
 async fn main() {
     set_window_size(1000, 1000);
     let mut simulation = Simulation::new(PhysicsEngine {
-        detector: Detector::new(DetectorKind::Speculative { include_external_forces: true, mode: SpeculativeStepMode::Equidistant }, GeometryKind::Surface),
+        //detector: Detector::new(DetectorKind::Speculative { include_external_forces: true, mode: SpeculativeStepMode::Equidistant }, GeometryKind::Surface),
+        detector: Detector::new(DetectorKind::Naive, GeometryKind::Surface),
         solver: Solver::SequentialImpulse(SequentialImpulse::new(SolverConfig {
             baumgarte: 0.2,
             relaxation_iterations: 1,
@@ -277,7 +312,7 @@ async fn main() {
             warm_starting: true
         })),
         delta_time: 0.02
-    }, get_time(), scene::upside_down_box_pyramid());
+    }, get_time(), scene::double_box());
 
     loop {
         simulation.update(get_time());

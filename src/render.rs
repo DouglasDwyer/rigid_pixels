@@ -1,4 +1,5 @@
 use crate::*;
+use std::collections::*;
 
 /// Stores state for rendering and handling user input.
 #[derive(Debug, Default)]
@@ -232,7 +233,7 @@ impl Renderer {
                 }
                 else {
                     self.dragged_object = None;
-                    if i.pointer.primary_down() {
+                    if i.pointer.primary_pressed() {
                         self.destroy_at_position(position, world);
                     }
                 }
@@ -245,37 +246,106 @@ impl Renderer {
 
     /// Destroys the pixel at world-space `position`.
     fn destroy_at_position(&mut self, position: Vec2, world: &mut PixelWorld) {
-        for (id, object) in &mut world.objects {
-            let clicked_position = object.world_grid_matrix().inverse().transform_point2(position);
-            let cell = clicked_position.floor().as_ivec2().as_uvec2();
-            if object.body.grid().get_or_empty(cell) {
-                let mut new_grid = object.body.grid().clone();
-                new_grid.set(cell, false);
-                
-                let min_corner_transform = object.world_grid_matrix().transform_point2(Vec2::ZERO);
+        if true {
+            use fracturing::*;
+            fn random_color() -> Color {
+                Color::new(
+                    rand::gen_range(0.0, 1.0), // red
+                    rand::gen_range(0.0, 1.0), // green
+                    rand::gen_range(0.0, 1.0), // blue
+                    1.0,                       // alpha (opacity)
+                )
+            }
 
-                let mut to_insert = Vec::new();
-                for neighborhood in new_grid.neighborhoods() {
-                    let can_stay_immobile = neighborhood.count_ones() > 50;
-                    let new_body = PixelBody::new(
-                        neighborhood,
-                        object.body.material(),
-                        can_stay_immobile && object.body.inverse_mass() == 0.0,
-                        can_stay_immobile && object.body.inverse_inertia_tensor() == 0.0);
-                    let new_transform = Transform::new(
-                        object.world_grid_matrix().transform_vector2(new_body.local_center_of_mass()) + min_corner_transform,
-                        object.transform.rotation);
+            let destroy_radius = 5;
+            let voronoi = VoronoiNoise2d::new(get_time() as u32, Mat3::from_scale(vec2(0.3, 0.3)));
 
-                    to_insert.push(PixelObject::new(new_body, object.color, new_transform));
+            for (id, object) in &mut world.objects {
+                let clicked_position = object.world_grid_matrix().inverse().transform_point2(position);
+                let clicked_cell = clicked_position.floor().as_ivec2();
+                if object.body.grid().get_or_empty(clicked_cell.as_uvec2()) {
+                    let mut copied_grid = object.body.grid().clone();
+                    let mut new_bodies = HashMap::new();
+                    
+                    for y in -destroy_radius..=destroy_radius {
+                        for x in -destroy_radius..=destroy_radius {
+                            let within_bounds = ivec2(x, y).length_squared() < destroy_radius.pow(2);
+                            let cell = (clicked_cell + ivec2(x, y)).as_uvec2();
+                            if within_bounds && object.body.grid().get_or_empty(cell) {
+                                let seed = voronoi.evaluate(cell.as_vec2() + Vec2::splat(0.5));
+                                if seed.distance_squared(clicked_position) < destroy_radius.pow(2) as f32 {
+                                    new_bodies.entry((seed.x.to_bits(), seed.y.to_bits())).or_insert_with(|| PixelGrid::new(object.body.grid().resolution()))
+                                        .set(cell, true);
+                                    copied_grid.set(cell, false);
+                                }
+                            }
+                        }
+                    }
+
+                    let min_corner_transform = object.world_grid_matrix().transform_point2(Vec2::ZERO);
+
+                    let mut to_insert = Vec::new();
+                    for (new_grid, was_prev) in new_bodies.into_values().zip(std::iter::repeat(false)).chain(std::iter::once((copied_grid, true))) {
+                        for neighborhood in new_grid.neighborhoods() {
+                            let can_stay_immobile = was_prev && neighborhood.count_ones() > 50;
+                            let new_body = PixelBody::new(
+                                neighborhood,
+                                object.body.material(),
+                                can_stay_immobile && object.body.inverse_mass() == 0.0,
+                                can_stay_immobile && object.body.inverse_inertia_tensor() == 0.0);
+                            let new_transform = Transform::new(
+                                object.world_grid_matrix().transform_vector2(new_body.local_center_of_mass()) + min_corner_transform,
+                                object.transform.rotation);
+
+                            to_insert.push(PixelObject::new(new_body, random_color(), new_transform));
+                        }
+                    }
+
+                    world.objects.remove(id);
+                    
+                    for object in to_insert {
+                        world.objects.insert(object);
+                    }
+                    
+                    break;
                 }
+            }
+        }
 
-                world.objects.remove(id);
-                
-                for object in to_insert {
-                    world.objects.insert(object);
+        // Destroying individual voxels
+        if false {
+            for (id, object) in &mut world.objects {
+                let clicked_position = object.world_grid_matrix().inverse().transform_point2(position);
+                let cell = clicked_position.floor().as_ivec2().as_uvec2();
+                if object.body.grid().get_or_empty(cell) {
+                    let mut new_grid = object.body.grid().clone();
+                    new_grid.set(cell, false);
+                    
+                    let min_corner_transform = object.world_grid_matrix().transform_point2(Vec2::ZERO);
+
+                    let mut to_insert = Vec::new();
+                    for neighborhood in new_grid.neighborhoods() {
+                        let can_stay_immobile = neighborhood.count_ones() > 50;
+                        let new_body = PixelBody::new(
+                            neighborhood,
+                            object.body.material(),
+                            can_stay_immobile && object.body.inverse_mass() == 0.0,
+                            can_stay_immobile && object.body.inverse_inertia_tensor() == 0.0);
+                        let new_transform = Transform::new(
+                            object.world_grid_matrix().transform_vector2(new_body.local_center_of_mass()) + min_corner_transform,
+                            object.transform.rotation);
+
+                        to_insert.push(PixelObject::new(new_body, object.color, new_transform));
+                    }
+
+                    world.objects.remove(id);
+                    
+                    for object in to_insert {
+                        world.objects.insert(object);
+                    }
+                    
+                    break;
                 }
-                
-                break;
             }
         }
     }

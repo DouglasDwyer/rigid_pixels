@@ -14,6 +14,8 @@ new_key_type! {
 /// Holds physical properties of a material.
 #[derive(Copy, Clone, Debug)]
 pub struct PixelMaterial {
+    /// The maximum impulse that this material can withstand before breaking.
+    pub breaking_impulse: f32,
     /// The friction along the material's surface.
     pub friction: f32,
     /// The bounciness of the material.
@@ -22,12 +24,25 @@ pub struct PixelMaterial {
 
 impl PixelMaterial {
     /// Combines two materials to describe the surface properties when they meet.
-    pub fn mix(a: Self, b: Self) -> Self {
-        Self {
+    pub fn mix(a: Self, b: Self) -> PixelMaterialPair {
+        PixelMaterialPair {
+            breaking_impulses: [a.breaking_impulse, b.breaking_impulse],
             friction: 0.5 * (a.friction + b.friction),
             restitution: a.restitution.max(b.restitution)
         }
     }
+}
+
+/// Describes the physical properties at the contact point
+/// between two materials.
+#[derive(Copy, Clone, Debug)]
+pub struct PixelMaterialPair {
+    /// The breaking impulse of each object.
+    pub breaking_impulses: [f32; 2],
+    /// The combined friction.
+    pub friction: f32,
+    /// The combined restitution.
+    pub restitution: f32
 }
 
 /// Holds the world being simulated.

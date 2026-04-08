@@ -2,12 +2,14 @@ use crate::*;
 
 /// A surface with no friction and no bounciness.
 const SMOOTH_HARD: PixelMaterial = PixelMaterial {
+    breaking_impulse: 50000.0,
     friction: 0.0,
     restitution: 0.0
 };
 
 /// A surface with some friction and moderate bounciness.
 const ROUGH_SOFT: PixelMaterial = PixelMaterial {
+    breaking_impulse: 50000.0,
     friction: 0.3,
     restitution: 0.3
 };
@@ -155,19 +157,17 @@ fn create_circle(color: Color, material: PixelMaterial, transform: Transform, ra
 
 /// Creates a flat floor object for testing.
 fn create_floor1(material: PixelMaterial) -> PixelObject {
+    const FLOOR_HEIGHT: u32 = 16;
     const FLOOR_LENGTH: u32 = 512;
 
     let mut grid = PixelGrid::new(uvec2(FLOOR_LENGTH, 25));
     for x in 0..FLOOR_LENGTH {
-        grid.set(uvec2(x, 0), true);
-        grid.set(uvec2(x, 1), true);
-        grid.set(uvec2(x, 2), true);
-        grid.set(uvec2(x, 3), true);
-        grid.set(uvec2(x, 4), true);
-        grid.set(uvec2(x, 5), true);
+        for y in 0..FLOOR_HEIGHT {
+            grid.set(uvec2(x, y), true);
+        }
     }
 
-    let transform = Transform { position: Vec2::ZERO, rotation: 0.0 };
+    let transform = Transform { position: vec2(0.0, -6.5), rotation: 0.0 };
     let mut body = PixelBody::new(grid, material, true, true);
 
     PixelObject::new(body, DARKGRAY, transform)

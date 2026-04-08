@@ -30,6 +30,13 @@ pub enum Solver {
 }
 
 impl Solver {
+    /// Gets the events generated during the last solver iteration.
+    pub fn events(&self) -> &[SolverEvent] {
+        match self {
+            Solver::SequentialImpulse(x) => x.events(),
+        }
+    }
+
     /// Solves all contacts and joints, then updates the position/velocity of every object in `world`.
     pub fn solve(&mut self, contacts: &[Contact], world: &mut PixelWorld, delta_time: f32) {
         match self {
