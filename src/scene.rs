@@ -2,16 +2,23 @@ use crate::*;
 
 /// A surface with no friction and no bounciness.
 const SMOOTH_HARD: PixelMaterial = PixelMaterial {
-    breaking_impulse: 50000.0,
+    breaking_impulse: 4000.0,
     friction: 0.0,
     restitution: 0.0
 };
 
 /// A surface with some friction and moderate bounciness.
 const ROUGH_SOFT: PixelMaterial = PixelMaterial {
-    breaking_impulse: 50000.0,
+    breaking_impulse: 2000.0,
     friction: 0.3,
     restitution: 0.3
+};
+
+/// A brittle surface representing glass.
+const GLASS: PixelMaterial = PixelMaterial {
+    breaking_impulse: 500.0,
+    friction: 0.05,
+    restitution: 0.05
 };
 
 /// A simple world with two boxes for testing collision detection.
@@ -104,6 +111,17 @@ pub fn hinge_joint() -> PixelWorld {
     world
 }
 
+/// Creates a world with a breakable, vertical glass pane.
+pub fn glass_pane() -> PixelWorld {
+    let mut world = PixelWorld::default();
+    
+    world.objects.insert(create_floor1(ROUGH_SOFT));
+    world.objects.insert(create_circle(ORANGE, SMOOTH_HARD, Transform { position: vec2(-30.0, 6.5), rotation: 0.2 }, 5.0));
+    world.objects.insert(create_immobile_box(SKYBLUE, GLASS, Transform { position: vec2(30.0, 26.5), rotation: 0.0 }, uvec2(3, 50)));
+
+    world
+}
+
 /// Creates a box with `color` at `transform`.
 fn create_box(color: Color, material: PixelMaterial, transform: Transform, extents: UVec2) -> PixelObject {
     let mut grid = PixelGrid::new(extents);
@@ -114,6 +132,19 @@ fn create_box(color: Color, material: PixelMaterial, transform: Transform, exten
     }
 
     let body = PixelBody::new(grid, material, false, false);
+    PixelObject::new(body, color, transform)
+}
+
+/// Creates a box with `color` at `transform` that cannot be moved.
+fn create_immobile_box(color: Color, material: PixelMaterial, transform: Transform, extents: UVec2) -> PixelObject {
+    let mut grid = PixelGrid::new(extents);
+    for y in 0..extents.y {
+        for x in 0..extents.x {
+            grid.set(uvec2(x, y), true);
+        }
+    }
+
+    let body = PixelBody::new(grid, material, true, true);
     PixelObject::new(body, color, transform)
 }
 

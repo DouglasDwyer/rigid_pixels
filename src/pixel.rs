@@ -71,6 +71,24 @@ impl PixelWorld {
             rotation_min: descriptor.rotation_min
         });
     }
+
+    /// Breaks the provided object up into components specified by `pieces`.
+    /// Creates new objects in the world - one for each piece - which inherit
+    /// their transform and velocity from the object with `id`. All grids specified by
+    /// `pieces` must be the same size as the object, or this will panic.
+    pub fn split_object(&mut self, id: ObjectId, pieces: impl IntoIterator<Item = PixelGrid>) {
+        /// The number of pixels that a piece must have in order to stay static.
+        /// All pieces less than this threshold become dynamic rigid bodies.
+        const IMMOBILITY_THRESHOLD: usize = 100;
+
+        let new_objects = self.objects[id].split(pieces, IMMOBILITY_THRESHOLD);
+
+        self.objects.remove(id);
+
+        for new_object in new_objects {
+            self.objects.insert(new_object);
+        }
+    }
 }
 
 /// Efficiently gathers all external forces over the course of a frame.
@@ -113,6 +131,42 @@ impl PixelObject {
     pub fn add_force(&mut self, point: Vec2, force: Vec2) {
         self.forces.force += force;
         self.forces.torque += (point - self.transform.position).perp_dot(force);
+    }
+
+    /// Breaks this object up into components specified by `pieces`.
+    /// Returns a list of new objects - one for each piece - which inherit
+    /// their transform and velocity from this object. All grids specified by
+    /// `pieces` must be the same size as `self`, or this will panic.
+    pub fn split(&self, pieces: impl IntoIterator<Item = PixelGrid>, immobility_threshold: usize) -> Vec<Self> {
+        let min_corner = self.world_grid_matrix().transform_point2(Vec2::ZERO);
+
+        let pieces_iter = pieces.into_iter();
+        let mut to_insert = Vec::with_capacity(pieces_iter.size_hint().0);
+        for piece in pieces_iter {
+            assert_eq!(self.body.grid().resolution, piece.resolution, "piece size did not match original grid");
+
+            let can_stay_immobile = immobility_threshold <= piece.count_ones();
+
+            let new_body = PixelBody::new(
+                piece,
+                self.body.material(),
+                can_stay_immobile && self.body.inverse_mass() == 0.0,
+                can_stay_immobile && self.body.inverse_inertia_tensor() == 0.0);
+
+            let new_transform = Transform::new(
+                self.world_grid_matrix().transform_vector2(new_body.local_center_of_mass()) + min_corner,
+                self.transform.rotation);
+
+            let mut new_object = PixelObject::new(new_body, self.color, new_transform);
+            new_object.velocity = Velocity {
+                angular: self.velocity.angular,
+                linear: self.velocity.linear + self.velocity.angular * (new_transform.position - self.transform.position).rotate(Vec2::Y)
+            };
+
+            to_insert.push(new_object);
+        }
+        
+        to_insert
     }
 
     /// Gets a matrix that converts from grid space to world space.
@@ -425,7 +479,7 @@ impl PixelGrid {
     }
 
     /// Gets an iterator over all neighborhoods of this grid.
-    pub fn neighborhoods(&self) -> impl IntoIterator<Item = Self> {
+    pub fn neighborhoods(&self) -> Vec<Self> {
         let mut seen = Self::new(self.resolution);
         let mut result = Vec::new();
 

@@ -1,19 +1,24 @@
 use crate::*;
+use std::collections::*;
 
-/*
 pub fn apply_fracture(fracture: Fracture, world: &mut PixelWorld) {
     if let Some(object) = world.objects.get(fracture.object) {
+        let destroy_radius = 6;
+        let voronoi = VoronoiNoise2d::new(get_time() as u32, Mat3::from_scale(vec2(0.333, 0.12)));
+
         let mut copied_grid = object.body.grid().clone();
+        assert!(copied_grid.set(fracture.pixel_position, false));
+
         let mut new_bodies = HashMap::new();
-        
+
         for y in -destroy_radius..=destroy_radius {
             for x in -destroy_radius..=destroy_radius {
                 let within_bounds = ivec2(x, y).length_squared() < destroy_radius.pow(2);
-                let cell = (clicked_cell + ivec2(x, y)).as_uvec2();
-                if within_bounds && object.body.grid().get_or_empty(cell) {
+                let cell = fracture.pixel_position.wrapping_add(ivec2(x, y).as_uvec2());
+                if within_bounds && copied_grid.get_or_empty(cell) {
                     let seed = voronoi.evaluate(cell.as_vec2() + Vec2::splat(0.5));
-                    if seed.distance_squared(clicked_position) < destroy_radius.pow(2) as f32 {
-                        new_bodies.entry((seed.x.to_bits(), seed.y.to_bits())).or_insert_with(|| PixelGrid::new(object.body.grid().resolution()))
+                    if seed.distance_squared(fracture.pixel_position.as_vec2()) < destroy_radius.pow(2) as f32 {
+                        new_bodies.entry((seed.x.to_bits(), seed.y.to_bits())).or_insert_with(|| PixelGrid::new(copied_grid.resolution()))
                             .set(cell, true);
                         copied_grid.set(cell, false);
                     }
@@ -21,32 +26,10 @@ pub fn apply_fracture(fracture: Fracture, world: &mut PixelWorld) {
             }
         }
 
-        let min_corner_transform = object.world_grid_matrix().transform_point2(Vec2::ZERO);
-
-        let mut to_insert = Vec::new();
-        for (new_grid, was_prev) in new_bodies.into_values().zip(std::iter::repeat(false)).chain(std::iter::once((copied_grid, true))) {
-            for neighborhood in new_grid.neighborhoods() {
-                let can_stay_immobile = was_prev && neighborhood.count_ones() > 50;
-                let new_body = PixelBody::new(
-                    neighborhood,
-                    object.body.material(),
-                    can_stay_immobile && object.body.inverse_mass() == 0.0,
-                    can_stay_immobile && object.body.inverse_inertia_tensor() == 0.0);
-                let new_transform = Transform::new(
-                    object.world_grid_matrix().transform_vector2(new_body.local_center_of_mass()) + min_corner_transform,
-                    object.transform.rotation);
-
-                to_insert.push(PixelObject::new(new_body, random_color(), new_transform));
-            }
-        }
-
-        world.objects.remove(id);
-        
-        for object in to_insert {
-            world.objects.insert(object);
-        }
+        world.split_object(fracture.object, new_bodies.into_values().chain(std::iter::once(copied_grid))
+            .flat_map(|x| x.neighborhoods()));
     }
-} */
+}
 
 pub struct VoronoiNoise2d {
     /// Converts from coordinates in input space

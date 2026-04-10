@@ -91,8 +91,8 @@ impl SequentialImpulse {
                     if max_impulse < total_normal_impulse {
                         self.events.push(SolverEvent::Fracture(Fracture {
                             impulse: [-1.0, 1.0][i] * total_normal_impulse * contact.normal,
-                            local_position: contact.local_position[i],
-                            object: contact.objects[i]
+                            object: contact.objects[i],
+                            pixel_position: contact.pixel_position[i]
                         }));
                     }
                 }

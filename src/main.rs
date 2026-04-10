@@ -3,8 +3,10 @@
 use egui_macroquad::egui;
 use macroquad::miniquad::window::set_window_size;
 use macroquad::prelude::*;
+
 use self::detector::*;
 use self::force::*;
+use self::fracturing::*;
 use self::math::*;
 use self::pixel::*;
 use self::render::*;
@@ -71,8 +73,10 @@ impl Simulation {
             self.physics.detector.update(&self.world, self.physics.delta_time);
             self.physics.solver.solve(self.physics.detector.contacts(), &mut self.world, self.physics.delta_time);
 
-            for event in self.physics.solver.events() {
-                println!("{event:?}");
+            for event in self.physics.solver.events().iter().copied() {
+                match event {
+                    SolverEvent::Fracture(fracture) => apply_fracture(fracture, &mut self.world),
+                }
             }
 
             self.last_update += self.physics.delta_time as f64;
@@ -278,10 +282,10 @@ pub enum SolverEvent {
 pub struct Fracture {
     /// The impulse that generated the fracture.
     pub impulse: Vec2,
-    /// The origin of the fracture, in local space.
-    pub local_position: Vec2,
     /// The objects involved in the fracture.
     pub object: ObjectId,
+    /// The origin of the fracture, in pixel coordinates.
+    pub pixel_position: UVec2,
 }
 
 /// Allows for uniquely identifying a contact across frames.
@@ -302,8 +306,7 @@ pub struct JointId(u32);
 async fn main() {
     set_window_size(1000, 1000);
     let mut simulation = Simulation::new(PhysicsEngine {
-        //detector: Detector::new(DetectorKind::Speculative { include_external_forces: true, mode: SpeculativeStepMode::Equidistant }, GeometryKind::Surface),
-        detector: Detector::new(DetectorKind::Naive, GeometryKind::Surface),
+        detector: Detector::new(DetectorKind::Speculative { include_external_forces: true, mode: SpeculativeStepMode::Equidistant }, GeometryKind::Surface),
         solver: Solver::SequentialImpulse(SequentialImpulse::new(SolverConfig {
             baumgarte: 0.2,
             relaxation_iterations: 1,
@@ -312,7 +315,7 @@ async fn main() {
             warm_starting: true
         })),
         delta_time: 0.02
-    }, get_time(), scene::double_box());
+    }, get_time(), scene::glass_pane());
 
     loop {
         simulation.update(get_time());
