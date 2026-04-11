@@ -109,11 +109,6 @@ impl SequentialImpulse {
 
                 let excess_impulse = total_normal_impulse - max_immediate_impulse;
                 Self::apply_impulse(constraint, world, -excess_impulse * contact.normal, 0.0);
-
-                // Todo:
-                // - Use them to do breakage there
-                // - Reapply excess impulse (distribute it evenly among broken pieces @ point.)?
-                // Note: for our final simulation, we will need to split by object
             }
         }
     }
@@ -154,19 +149,12 @@ impl SequentialImpulse {
         let velocity_per_impulse = Self::velocity_per_impulse(constraint, world);
         let impulse_per_velocity = velocity_per_impulse.inverse();
 
-        if Self::approx_zero(relative_velocity) {
-            return;
-        }
-
         let static_friction_impulse = constraint.impulse - impulse_per_velocity * relative_velocity;
         
         let normal_impulse = static_friction_impulse.dot(contact.normal);
         let planar_impulse = static_friction_impulse.reject_from_normalized(contact.normal);
         let planar_impulse_length = planar_impulse.length();
 
-        // Case to optimize:
-        //  - Can we skip the friction calculations if normal_impulse < 0.0?
-        //    Not sure if there would be instances where static friction implies negative impulse and dynamic implies positive
         let total_impulse_unclamped = if contact.material.friction * normal_impulse < planar_impulse_length {
             let relative_velocity_without_impulse = relative_velocity - velocity_per_impulse * constraint.impulse;
             let impulse_direction = (contact.normal + contact.material.friction * planar_impulse.normalize_or_zero()).normalize();
