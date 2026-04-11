@@ -33,6 +33,11 @@ impl Transform {
         }
     }
 
+    /// Whether all components of this value are finite.
+    pub fn is_finite(self) -> bool {
+        self.position.is_finite() && self.rotation.is_finite()
+    }
+
     /// Produces a matrix converting from model space to world space.
     pub fn to_matrix(self) -> Mat3 {
         Mat3::from_scale_angle_translation(Vec2::ONE, self.rotation, self.position)

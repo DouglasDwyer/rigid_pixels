@@ -1,6 +1,132 @@
 use crate::*;
 use std::collections::*;
 
+/// Describes the type of fracture that should occur for an object.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum FracturePatternId {
+    /// Objects will crumble into round, volumetric pieces.
+    Clumps,
+    /// Objects will shatter into thin sheets.
+    Shards,
+}
+
+/// A predefined table of [`FracturePattern`]s of different shapes and sizes.
+pub struct FractureLut {
+    /// The baked patterns.
+    patterns: HashMap<FractureLutKey, Vec<FracturePattern>>
+}
+
+impl FractureLut {
+    /// Builds the lookup table, pre-generating all fracture patterns.
+    pub fn generate() -> Self {
+        Self {
+            patterns: [
+                (FractureLutKey::new(FracturePatternId::Clumps, Axis::X, 1), Vec::from_fn(3,
+                    |i| FracturePattern::voronoi(i as u32, 5, vec2(4.0, 4.0)).destroy_radius(2))),
+                (FractureLutKey::new(FracturePatternId::Clumps, Axis::X, 2), Vec::from_fn(3,
+                    |i| FracturePattern::voronoi(i as u32, 8, vec2(6.0, 6.0)).destroy_radius(3))),
+                (FractureLutKey::new(FracturePatternId::Clumps, Axis::X, 3), Vec::from_fn(3,
+                    |i| FracturePattern::voronoi(i as u32, 12, vec2(9.0, 9.0)).destroy_radius(4))),
+                    
+                (FractureLutKey::new(FracturePatternId::Clumps, Axis::Y, 1), Vec::from_fn(3,
+                    |i| FracturePattern::voronoi(i as u32, 5, vec2(4.0, 4.0)).destroy_radius(2))),
+                (FractureLutKey::new(FracturePatternId::Clumps, Axis::Y, 2), Vec::from_fn(3,
+                    |i| FracturePattern::voronoi(i as u32, 12, vec2(6.0, 6.0)).destroy_radius(3))),
+                (FractureLutKey::new(FracturePatternId::Clumps, Axis::Y, 3), Vec::from_fn(3,
+                    |i| FracturePattern::voronoi(i as u32, 12, vec2(9.0, 9.0)).destroy_radius(4))),
+                    
+                (FractureLutKey::new(FracturePatternId::Shards, Axis::X, 1), Vec::from_fn(3,
+                    |i| FracturePattern::voronoi(i as u32, 8, vec2(1.0, 3.0)).destroy_radius(1))),
+                (FractureLutKey::new(FracturePatternId::Shards, Axis::X, 2), Vec::from_fn(3,
+                    |i| FracturePattern::voronoi(i as u32, 10, vec2(1.25, 3.5)).destroy_radius(2))),
+                (FractureLutKey::new(FracturePatternId::Shards, Axis::X, 3), Vec::from_fn(3,
+                    |i| FracturePattern::voronoi(i as u32, 15, vec2(1.5, 4.0)).destroy_radius(3))),
+                    
+                (FractureLutKey::new(FracturePatternId::Shards, Axis::Y, 1), Vec::from_fn(3,
+                    |i| FracturePattern::voronoi(i as u32, 8, vec2(3.0, 1.0)).destroy_radius(1))),
+                (FractureLutKey::new(FracturePatternId::Shards, Axis::Y, 2), Vec::from_fn(3,
+                    |i| FracturePattern::voronoi(i as u32, 10, vec2(3.5, 1.25)).destroy_radius(2))),
+                (FractureLutKey::new(FracturePatternId::Shards, Axis::Y, 3), Vec::from_fn(3,
+                    |i| FracturePattern::voronoi(i as u32, 15, vec2(4.0, 2.0)).destroy_radius(3)))
+            ].into()
+        }
+    }
+
+    /// Looks up and applies the fracture pattern that best matches the given event.
+    /// `seed` selects among the pre-generated variants for that pattern so repeated
+    /// impacts on the same spot do not look identical.
+    pub fn apply(&self, seed: u32, fracture: Fracture, world: &mut PixelWorld) {
+        let key = Self::classify(fracture, world);
+        if let Some(variants) = self.patterns.get(&key) {
+            variants[seed as usize % variants.len()].apply(fracture, world);
+        }
+    }
+
+    /// Converts a fracture event into the lookup key that identifies the appropriate pattern.
+    /// The impulse is rotated into the object's local space before the dominant axis is determined,
+    /// so the pattern stays consistent regardless of the object's world-space orientation.
+    fn classify(fracture: Fracture, world: &PixelWorld) -> FractureLutKey {
+        FractureLutKey::new(
+            fracture.pattern,
+            Self::max_axis(fracture.impulse.rotate(Vec2::from_angle(-world.objects[fracture.object].transform.rotation))),
+            fracture.strength_ratio.floor().clamp(1.0, 3.0) as u8)
+    }
+
+    /// Returns the axis along which `v` has the greater absolute magnitude.
+    fn max_axis(v: Vec2) -> Axis {
+        let v_abs = v.abs();
+        if v_abs.x < v_abs.y {
+            Axis::Y
+        }
+        else {
+            Axis::X
+        }
+    }
+}
+
+/// A composite key identifying a specific entry in a [`FractureLut`].
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+struct FractureLutKey {
+    /// The fracture pattern type (e.g. clumps or shards).
+    id: FracturePatternId,
+    /// The dominant axis of the impact impulse in the object's local space.
+    normal: Axis,
+    /// The discretized impact strength tier (1 = light, 3 = heavy).
+    strength_ratio: u8
+}
+
+impl FractureLutKey {
+    /// Creates a new key from its component parts.
+    pub fn new(id: FracturePatternId, normal: Axis, strength_ratio: u8) -> Self {
+        Self { id, normal, strength_ratio }
+    }
+}
+
+/// Identifies a Cartesian axis in 2D space.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+enum Axis {
+    /// The horizontal axis.
+    X,
+    /// The vertical axis.
+    Y
+}
+
+impl Axis {
+    /// A list of all valid axes.
+    pub const ALL: [Self; 2] = [Self::X, Self::Y];
+}
+
+/// The intensity tier of a fracture, used to select an appropriately-sized pattern.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+enum FractureStrength {
+    /// A light impact that produces small fragments.
+    Small,
+    /// A moderate impact.
+    Medium,
+    /// A heavy impact that produces large fragments.
+    Large
+}
+
 /// Stores a set of pre-generated fragments that determine how an object is split.
 pub struct FracturePattern {
     /// A grid of separate "pieces" into which the object should be broken.
@@ -42,13 +168,16 @@ impl FracturePattern {
         }
     }
 
-    pub fn voronoi(seed: u32, radius_pixels: u32, angle: f32, scale: Vec2) -> Self {
+    /// Generates a pattern using Voronoi noise with a given random `seed`.
+    /// Each Voronoi grid cell will have length `scale` (in pixels).
+    /// Everything contained in an ellipse with major axis `radius_pixels` will be affected.
+    pub fn voronoi(seed: u32, radius_pixels: u32, scale: Vec2) -> Self {
         let radius_pixels_i32 = radius_pixels as i32;
         let grid_resolution = UVec2::splat(2 * radius_pixels + 1);
         let offset = IVec2::splat(-radius_pixels_i32);
 
-        let transform = Mat3::from_scale(scale) * Mat3::from_angle(angle);
-        let radius_voronoi = (radius_pixels as f32 * scale.min_element() - 1.0).max(1.0);
+        let transform = Mat3::from_scale(scale.recip());
+        let radius_voronoi = (radius_pixels as f32 / scale.max_element() - 1.0).max(1.0);
         
         let mut cells = HashMap::default();
         for pixel in iter_grid_inclusive_i32(IVec2::splat(-radius_pixels_i32), IVec2::splat(radius_pixels_i32)) {
@@ -88,57 +217,56 @@ impl FracturePattern {
     /// Breaks an object into pieces based upon this fracture pattern.
     /// Deletes the body at `id` and replaces it with smaller pieces.
     pub fn apply(&self, fracture: Fracture, world: &mut PixelWorld) {
-        if let Some(object) = world.objects.get(fracture.object) {
-            let mut copied_grid = object.body.grid().clone();
-            
-            for destroy_offset in self.destroy_pixels.iter().copied() {
-                let object_pixel = (fracture.pixel_position.as_ivec2() + destroy_offset).as_uvec2();
-                if object_pixel.cmplt(copied_grid.resolution()).all() {
-                    copied_grid.set(object_pixel, false);
-                }
+        let object = &world.objects[fracture.object];
+        let mut copied_grid = object.body.grid().clone();
+        
+        for destroy_offset in self.destroy_pixels.iter().copied() {
+            let object_pixel = (fracture.pixel_position.as_ivec2() + destroy_offset).as_uvec2();
+            if object_pixel.cmplt(copied_grid.resolution()).all() {
+                copied_grid.set(object_pixel, false);
             }
+        }
 
-            let mut new_bodies = Vec::new();
-            let mut seen_cells = HashSet::new();
-            let mut cells_to_check = vec![IVec2::ZERO];
+        let mut new_bodies = Vec::new();
+        let mut seen_cells = HashSet::new();
+        let mut cells_to_check = vec![IVec2::ZERO];
 
-            while let Some(next_position) = cells_to_check.pop() {
-                if let Some(cell) = self.cells.get(&next_position)
-                    && seen_cells.insert(next_position) {
-                    let mut new_body = PixelGrid::new(copied_grid.resolution());
+        while let Some(next_position) = cells_to_check.pop() {
+            if let Some(cell) = self.cells.get(&next_position)
+                && seen_cells.insert(next_position) {
+                let mut new_body = PixelGrid::new(copied_grid.resolution());
 
-                    let mut check_neighbors = false;
-                    let mut found_pixel = false;
+                let mut check_neighbors = false;
+                let mut found_pixel = false;
 
-                    for pattern_pixel in iter_grid_u32(UVec2::ZERO, cell.grid.resolution()) {
-                        if cell.grid.get(pattern_pixel) {
-                            let fracture_offset = pattern_pixel.as_ivec2() + cell.offset;
-                            let object_pixel = (fracture.pixel_position.as_ivec2() + fracture_offset).as_uvec2();
-                            
-                            check_neighbors |= self.destroy_pixels.contains(&fracture_offset);
+                for pattern_pixel in iter_grid_u32(UVec2::ZERO, cell.grid.resolution()) {
+                    if cell.grid.get(pattern_pixel) {
+                        let fracture_offset = pattern_pixel.as_ivec2() + cell.offset;
+                        let object_pixel = (fracture.pixel_position.as_ivec2() + fracture_offset).as_uvec2();
+                        
+                        check_neighbors |= self.destroy_pixels.contains(&fracture_offset);
 
-                            if copied_grid.get_or_empty(object_pixel) {
-                                copied_grid.set(object_pixel, false);
-                                new_body.set(object_pixel, true);
-                                found_pixel = true;
-                                check_neighbors = true;
-                            }
+                        if copied_grid.get_or_empty(object_pixel) {
+                            copied_grid.set(object_pixel, false);
+                            new_body.set(object_pixel, true);
+                            found_pixel = true;
+                            check_neighbors = true;
                         }
                     }
+                }
 
-                    if check_neighbors {
-                        cells_to_check.extend([IVec2::NEG_X, IVec2::NEG_Y, IVec2::X, IVec2::Y].map(|v| next_position + v));
-                    }
+                if check_neighbors {
+                    cells_to_check.extend([IVec2::NEG_X, IVec2::NEG_Y, IVec2::X, IVec2::Y].map(|v| next_position + v));
+                }
 
-                    if found_pixel {
-                        new_bodies.push(new_body);
-                    }
+                if found_pixel {
+                    new_bodies.push(new_body);
                 }
             }
-
-            world.split_object(fracture.object, new_bodies.into_iter().chain(std::iter::once(copied_grid))
-                .flat_map(|x| x.neighborhoods()));
         }
+
+        world.split_object(fracture.object, new_bodies.into_iter().chain(std::iter::once(copied_grid))
+            .flat_map(|x| x.neighborhoods()));
     }
 }
 

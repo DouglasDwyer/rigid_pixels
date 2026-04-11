@@ -1,5 +1,7 @@
 #![allow(unused)]
 
+#![feature(vec_from_fn)]
+
 use egui_macroquad::egui;
 use macroquad::miniquad::window::set_window_size;
 use macroquad::prelude::*;
@@ -44,6 +46,8 @@ mod solver;
 pub struct Simulation {
     /// The camera to use during rendering.
     camera: Camera,
+    /// Lookup table for fracture patterns.
+    fracture_lut: FractureLut,
     /// The time of the last physics update.
     last_update: f64,
     /// The selected algorithms for physics.
@@ -59,6 +63,7 @@ impl Simulation {
     pub fn new(physics: PhysicsEngine, start_time: f64, world: PixelWorld) -> Self {
         Self {
             camera: Camera::default(),
+            fracture_lut: FractureLut::generate(),
             last_update: start_time,
             physics,
             renderer: Renderer::default(),
@@ -76,13 +81,8 @@ impl Simulation {
 
             for event in self.physics.solver.events().iter().copied() {
                 match event {
-                    SolverEvent::Fracture(fracture) => {
-                        //let pattern = FracturePattern::grid(5, UVec2::splat(2))
-                        //    .destroy_radius(2);
-                        let pattern = FracturePattern::voronoi(rand(), 16, fracture.impulse.to_angle(), vec2(0.1, 0.1))
-                            .destroy_radius(2);
-
-                        pattern.apply(fracture, &mut self.world)
+                    SolverEvent::Fracture(fracture) => if self.world.objects.contains_key(fracture.object) {
+                        self.fracture_lut.apply(rand(), fracture, &mut self.world)
                     }
                 }
             }
@@ -109,6 +109,8 @@ impl Simulation {
         const MAX_DISTANCE: f32 = 1000.0;
 
         for (id, object) in &mut self.world.objects {
+            assert!(object.transform.is_finite(), "{:?}", object.transform);
+
             if MAX_DISTANCE < object.transform.position.abs().max_element() {
                 println!("Despawn {id:?}");
                 self.world.objects.remove(id);
@@ -300,8 +302,13 @@ pub struct Fracture {
     pub impulse: Vec2,
     /// The objects involved in the fracture.
     pub object: ObjectId,
+    /// How the fracture should occur.
+    pub pattern: FracturePatternId,
     /// The origin of the fracture, in pixel coordinates.
     pub pixel_position: UVec2,
+    /// The ratio of [`Self::impulse`] to the breaking impulse.
+    /// Always greater than `1.0`.
+    pub strength_ratio: f32
 }
 
 /// Allows for uniquely identifying a contact across frames.

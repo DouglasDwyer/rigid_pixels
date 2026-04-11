@@ -81,18 +81,28 @@ impl SequentialImpulse {
     /// Finds contacts where the impulse exceeded [`PixelMaterial::breaking_impulse`].
     /// Removes the excess impulse and generates a fracture event.
     fn solve_fracture(&mut self, constraint: &mut Constraint, world: &mut PixelWorld, delta_time: f32) {
+        /// The surface area over which force "spreads out". Used to make small objects fracture quicker.
+        const FRACTURE_SURFACE_LENGTH: f32 = 7.0;
+
         if let ConstraintSource::Contact(contact) = &constraint.source {
             let total_normal_impulse = contact.normal.dot(constraint.total_impulse);
 
-            let max_immediate_impulse = contact.material.breaking_impulses[0].min(contact.material.breaking_impulses[1]);
+            let scaled_impulses = [
+                world.objects[contact.objects[0]].body.area().min(FRACTURE_SURFACE_LENGTH).sqrt() * contact.material.breaking_impulses[0],
+                world.objects[contact.objects[1]].body.area().min(FRACTURE_SURFACE_LENGTH).sqrt() * contact.material.breaking_impulses[1]
+            ];
+
+            let max_immediate_impulse = scaled_impulses[0].min(scaled_impulses[1]);
 
             if max_immediate_impulse < total_normal_impulse {
-                for (i, max_impulse) in contact.material.breaking_impulses.into_iter().enumerate() {
+                for (i, max_impulse) in scaled_impulses.into_iter().enumerate() {
                     if max_impulse < total_normal_impulse {
                         self.events.push(SolverEvent::Fracture(Fracture {
                             impulse: [-1.0, 1.0][i] * total_normal_impulse * contact.normal,
                             object: contact.objects[i],
-                            pixel_position: contact.pixel_position[i]
+                            pattern: contact.material.fracture_patterns[i],
+                            pixel_position: contact.pixel_position[i],
+                            strength_ratio: total_normal_impulse / max_impulse
                         }));
                     }
                 }
@@ -144,12 +154,19 @@ impl SequentialImpulse {
         let velocity_per_impulse = Self::velocity_per_impulse(constraint, world);
         let impulse_per_velocity = velocity_per_impulse.inverse();
 
+        if Self::approx_zero(relative_velocity) {
+            return;
+        }
+
         let static_friction_impulse = constraint.impulse - impulse_per_velocity * relative_velocity;
         
         let normal_impulse = static_friction_impulse.dot(contact.normal);
         let planar_impulse = static_friction_impulse.reject_from_normalized(contact.normal);
         let planar_impulse_length = planar_impulse.length();
 
+        // Case to optimize:
+        //  - Can we skip the friction calculations if normal_impulse < 0.0?
+        //    Not sure if there would be instances where static friction implies negative impulse and dynamic implies positive
         let total_impulse_unclamped = if contact.material.friction * normal_impulse < planar_impulse_length {
             let relative_velocity_without_impulse = relative_velocity - velocity_per_impulse * constraint.impulse;
             let impulse_direction = (contact.normal + contact.material.friction * planar_impulse.normalize_or_zero()).normalize();
@@ -171,7 +188,10 @@ impl SequentialImpulse {
         };
 
         let delta_impulse = total_impulse - constraint.impulse;
-        Self::apply_impulse(constraint, world, delta_impulse, 0.0);
+
+        if !Self::approx_zero(delta_impulse) {
+            Self::apply_impulse(constraint, world, delta_impulse, 0.0);
+        }
     }
 
     /// Solves a joint-based velocity constraint.
@@ -337,6 +357,11 @@ impl SequentialImpulse {
         }
 
         result
+    }
+
+    /// Determines whether all components of the vector `v` are approximately equal to zero.
+    fn approx_zero(v: Vec2) -> bool {
+        v.abs().max_element() < 1e-6
     }
     
     /// Gets the displacement in world space between the two joint anchors.

@@ -16,6 +16,8 @@ new_key_type! {
 pub struct PixelMaterial {
     /// The maximum impulse that this material can withstand before breaking.
     pub breaking_impulse: f32,
+    /// How the material should split when [`Self::breaking_impulse`] is exceeded.
+    pub fracture_pattern: FracturePatternId,
     /// The friction along the material's surface.
     pub friction: f32,
     /// The bounciness of the material.
@@ -27,6 +29,7 @@ impl PixelMaterial {
     pub fn mix(a: Self, b: Self) -> PixelMaterialPair {
         PixelMaterialPair {
             breaking_impulses: [a.breaking_impulse, b.breaking_impulse],
+            fracture_patterns: [a.fracture_pattern, b.fracture_pattern],
             friction: 0.5 * (a.friction + b.friction),
             restitution: a.restitution.max(b.restitution)
         }
@@ -39,6 +42,8 @@ impl PixelMaterial {
 pub struct PixelMaterialPair {
     /// The breaking impulse of each object.
     pub breaking_impulses: [f32; 2],
+    /// The fracture kind of each object.
+    pub fracture_patterns: [FracturePatternId; 2],
     /// The combined friction.
     pub friction: f32,
     /// The combined restitution.
@@ -180,10 +185,12 @@ impl PixelObject {
 pub struct PixelBody {
     /// The center of mass in the grid frame.
     local_center_of_mass: Vec2,
-    /// The invrese of `m`.
+    /// The inverse of `m`.
     inverse_mass: f32,
     /// The inverse of `I`.
     inverse_inertia_tensor: f32,
+    /// The value of `m`.
+    mass: f32,
     /// The material governing physical properties.
     material: PixelMaterial,
     /// A 2D grid with neighbor information for each pixel. Same size as [`Self::grid`].
@@ -193,7 +200,7 @@ pub struct PixelBody {
     /// Which pixels are part of the object?
     grid: PixelGrid,
     /// A Euclidean radius that bounds the object.
-    radius: f32
+    radius: f32,
 }
 
 impl PixelBody {
@@ -206,6 +213,7 @@ impl PixelBody {
             inverse_mass: 0.0,
             inverse_inertia_tensor: 0.0,
             local_center_of_mass: Vec2::ZERO,
+            mass: 0.0,
             material,
             neighbors: Vec::new(),
             radius: 0.0
@@ -224,6 +232,11 @@ impl PixelBody {
     /// The grid of pixels associated with the body.
     pub fn grid(&self) -> &PixelGrid {
         &self.grid
+    }
+
+    /// Gets the mass of the object.
+    pub fn mass(&self) -> f32 {
+        self.mass
     }
 
     /// Gets the inverse mass of the object.
@@ -259,6 +272,13 @@ impl PixelBody {
     /// Which adjacent pixels are set?
     pub fn neighbors(&self, position: UVec2) -> PixelNeighbors {
         self.neighbors[(position.x + position.y * self.grid.resolution().x) as usize]
+    }
+
+    /// The area of the body in pixels.
+    pub fn area(&self) -> f32 {
+        // Mass and area are the same in this implementation;
+        // all pixels have density = 1 kg/pixel
+        self.mass
     }
 
     /// Recalculates all acceleration structure data for this body.
@@ -303,7 +323,12 @@ impl PixelBody {
         let mass = 1.0 * sz;
         self.local_center_of_mass = sz.recip() * summed_positions.xy().as_vec2() + Vec2::splat(0.5);
 
-        if !fixed_position {
+        if fixed_position {
+            self.mass = f32::MAX;
+            self.inverse_mass = 0.0;
+        }
+        else {
+            self.mass = mass;
             self.inverse_mass = mass.recip();
         }
         

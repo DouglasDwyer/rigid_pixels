@@ -135,8 +135,10 @@ impl Detector {
 
     /// Gathers all contacts between `a` and `b`.
     fn gather_contacts(a: DetectorObject, b: DetectorObject, contacts: &mut Vec<Contact>, geometry_kind: GeometryKind) {
-        Self::gather_corner_contacts(a, b, contacts, geometry_kind, true);
-        Self::gather_corner_contacts(b, a, contacts, geometry_kind, false);
+        if 0.0 < a.body.inverse_mass() || 0.0 < b.body.inverse_mass() {
+            Self::gather_corner_contacts(a, b, contacts, geometry_kind, true);
+            Self::gather_corner_contacts(b, a, contacts, geometry_kind, false);
+        }
     }
 
     /// Gathers all contact constraints produced by corners of object `a` colliding with `b`.
