@@ -2,14 +2,14 @@ use crate::*;
 
 /// A surface with no friction and no bounciness.
 const SMOOTH_HARD: PixelMaterial = PixelMaterial {
-    breaking_impulse: 4000.0,
+    breaking_impulse: 6000.0,
     friction: 0.0,
     restitution: 0.0
 };
 
 /// A surface with some friction and moderate bounciness.
 const ROUGH_SOFT: PixelMaterial = PixelMaterial {
-    breaking_impulse: 2000.0,
+    breaking_impulse: 3000.0,
     friction: 0.3,
     restitution: 0.3
 };

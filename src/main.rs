@@ -3,6 +3,7 @@
 use egui_macroquad::egui;
 use macroquad::miniquad::window::set_window_size;
 use macroquad::prelude::*;
+use macroquad::rand::*;
 
 use self::detector::*;
 use self::force::*;
@@ -75,20 +76,21 @@ impl Simulation {
 
             for event in self.physics.solver.events().iter().copied() {
                 match event {
-                    SolverEvent::Fracture(fracture) => apply_fracture(fracture, &mut self.world),
+                    SolverEvent::Fracture(fracture) => {
+                        //let pattern = FracturePattern::grid(5, UVec2::splat(2))
+                        //    .destroy_radius(2);
+                        let pattern = FracturePattern::voronoi(rand(), 16, fracture.impulse.to_angle(), vec2(0.1, 0.1))
+                            .destroy_radius(2);
+
+                        pattern.apply(fracture, &mut self.world)
+                    }
                 }
             }
 
             self.last_update += self.physics.delta_time as f64;
         }
 
-        for (id, object) in &mut self.world.objects {
-            if 10000.0 < object.transform.position.abs().max_element() {
-                self.world.objects.remove(id);
-                break;
-            }
-        }
-
+        self.despawn_far_objects();
         self.clear_force_accumulators();
 
         self.renderer.draw(&self.physics, &mut self.world);
@@ -98,6 +100,20 @@ impl Simulation {
     fn clear_force_accumulators(&mut self) {
         for object in self.world.objects.values_mut() {
             object.forces = ForceAccumulator::default()
+        }
+    }
+
+    /// Removes objects that are far away from the screen's center.
+    fn despawn_far_objects(&mut self) {
+        /// The maximum distance that any object may be before being removed.
+        const MAX_DISTANCE: f32 = 1000.0;
+
+        for (id, object) in &mut self.world.objects {
+            if MAX_DISTANCE < object.transform.position.abs().max_element() {
+                println!("Despawn {id:?}");
+                self.world.objects.remove(id);
+                break;
+            }
         }
     }
 

@@ -462,6 +462,11 @@ impl PixelGrid {
         self.values.count_zeros()
     }
 
+    /// Sets the entire grid to `value`.
+    pub fn fill(&mut self, value: bool) {
+        self.values.fill(value)
+    }
+
     /// Gets the value of the pixel at `position`.
     pub fn get(&self, position: UVec2) -> bool {
         assert!(position.cmplt(self.resolution).all(), "{position} was out-of-bounds for grid of resolution {}", self.resolution);
