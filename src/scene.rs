@@ -2,7 +2,7 @@ use crate::*;
 
 /// A surface with no friction and no bounciness.
 const SMOOTH_HARD: PixelMaterial = PixelMaterial {
-    breaking_impulse: 6000.0,
+    breaking_impulse: 60000.0,
     fracture_pattern: FracturePatternId::Clumps,
     friction: 0.0,
     restitution: 0.0
@@ -10,7 +10,7 @@ const SMOOTH_HARD: PixelMaterial = PixelMaterial {
 
 /// A surface with some friction and moderate bounciness.
 const ROUGH_SOFT: PixelMaterial = PixelMaterial {
-    breaking_impulse: 2000.0,
+    breaking_impulse: 20000.0,
     fracture_pattern: FracturePatternId::Clumps,
     friction: 0.3,
     restitution: 0.3
@@ -45,8 +45,8 @@ pub fn single_box() -> PixelWorld {
 pub fn double_box() -> PixelWorld {
     let mut world = PixelWorld::default();
     world.objects.insert(create_floor1(ROUGH_SOFT));
-    world.objects.insert(create_box(GOLD, ROUGH_SOFT, Transform { position: vec2(8.5, 9.5), rotation: 0.0 }, uvec2(8, 3)));
-    world.objects.insert(create_box(GOLD, ROUGH_SOFT, Transform { position: vec2(9.0, 12.5), rotation: 0.0 }, uvec2(5, 2)));
+    world.objects.insert(create_box(GOLD, ROUGH_SOFT, Transform { position: vec2(18.5, 29.5), rotation: 0.0 }, uvec2(20, 20)));
+    world.objects.insert(create_box(GOLD, ROUGH_SOFT, Transform { position: vec2(9.0, 12.5), rotation: 0.0 }, uvec2(2, 2)));
     world
 }
 
@@ -119,7 +119,10 @@ pub fn glass_pane() -> PixelWorld {
     let mut world = PixelWorld::default();
     
     world.objects.insert(create_floor1(ROUGH_SOFT));
-    world.objects.insert(create_circle(ORANGE, SMOOTH_HARD, Transform { position: vec2(-30.0, 6.5), rotation: 0.2 }, 5.0));
+
+    let mut circle = create_circle(ORANGE, SMOOTH_HARD, Transform { position: vec2(-30.0, 6.5), rotation: 0.2 }, 5.0);
+    circle.velocity.linear = vec2(65.0, 90.0);
+    world.objects.insert(circle);
     world.objects.insert(create_immobile_box(SKYBLUE, GLASS, Transform { position: vec2(30.0, 26.5), rotation: 0.0 }, uvec2(3, 50)));
 
     world

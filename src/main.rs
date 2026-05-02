@@ -338,7 +338,7 @@ async fn main() {
             warm_starting: true
         })),
         delta_time: 0.02
-    }, get_time(), scene::glass_pane());
+    }, get_time(), scene::double_box());
 
     loop {
         simulation.update(get_time());

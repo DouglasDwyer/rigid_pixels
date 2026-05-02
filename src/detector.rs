@@ -252,11 +252,23 @@ impl Detector {
     /// Given the displacement between two voxel centers, and the neighbors of the voxel that was hit,
     /// calculates the appropriate normal. The normal must never point toward a filled neighbor.
     fn clamp_normal(delta: Vec2, neighbors: PixelNeighbors) -> Vec2 {
-        let lower = BVec2::new(neighbors.contains(PixelNeighbors::LEFT), neighbors.contains(PixelNeighbors::DOWN));
-        let upper = BVec2::new(neighbors.contains(PixelNeighbors::RIGHT), neighbors.contains(PixelNeighbors::UP));
-        let clamped_lower = Vec2::select(lower, delta.max(Vec2::ZERO), delta);
-        let clamped_upper = Vec2::select(upper, clamped_lower.min(Vec2::ZERO), clamped_lower);
-        clamped_upper.normalize_or_zero()
+        let interior_x = neighbors.contains(if 0.0 <= delta.x { PixelNeighbors::RIGHT } else { PixelNeighbors::LEFT });
+        let interior_y = neighbors.contains(if 0.0 <= delta.y { PixelNeighbors::UP } else { PixelNeighbors::DOWN });
+
+        let clamped = Vec2::select(BVec2::new(interior_x, interior_y), Vec2::ZERO, delta);
+
+        if let Some(normalized) = clamped.try_normalize() {
+            normalized
+        }
+        else {
+            let delta_abs = delta.abs();
+            if delta.x < delta.y {
+                -delta.x.signum() * Vec2::X
+            }
+            else {
+                -delta.y.signum() * Vec2::Y
+            }
+        }
     }
 
     /// Iterates over all object pairs in `world`. Each pair is only returned once,

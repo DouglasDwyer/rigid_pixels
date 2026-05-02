@@ -129,6 +129,7 @@ impl SequentialImpulse {
             let total_impulse = (prior_normal_impulse + required_impulse).max(0.0);
             let delta_impulse = total_impulse - prior_normal_impulse;
 
+            constraint.total_impulse += delta_impulse * contact.normal;
             Self::apply_impulse(constraint, world, delta_impulse * contact.normal, 0.0);
         }
     }
