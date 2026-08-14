@@ -2,6 +2,7 @@ use arrayvec::ArrayVec;
 
 use crate::solver::*;
 use std::collections::*;
+use nalgebra::*;
 
 /// Iteratively applies impulses to resolve velocity and position constraints.
 /// In the style of Catto's Box2d.
@@ -587,6 +588,42 @@ impl From<Joint> for ConstraintSource {
 struct MassProperties {
     inverse_inertia: f32,
     inverse_mass: f32,
+}
+
+
+pub type Matrix12x1<T> = Matrix<T, U12, U1, ArrayStorage<T, 12, 1>>;
+pub type Matrix12x2<T> = Matrix<T, U12, U2, ArrayStorage<T, 12, 2>>;
+pub type Matrix12x3<T> = Matrix<T, U12, U3, ArrayStorage<T, 12, 3>>;
+
+#[derive(Copy, Clone, Debug, Default)]
+struct Constraint {
+    j: [Screw; 2],
+    lambda_limits: f32,
+    zeta: f32
+}
+
+struct BlockSolver2 {
+    constraints: BlockSolverArray<Constraint>,
+    m: [MassProperties; 2],
+    v: [Screw; 2]
+}
+
+impl BlockSolver2 {
+    pub fn new(v: [Screw; 2], m: [MassProperties; 2]) -> Self {
+        Self {
+            constraints: BlockSolverArray::new(),
+            m,
+            v,
+        }
+    }
+
+    pub fn add_constraint(&mut self, constraint: Constraint) {
+        todo!()
+    }
+
+    pub fn solve(&self) -> [Screw; 2] {
+        todo!()
+    }
 }
 
 #[derive(Debug, Default)]
