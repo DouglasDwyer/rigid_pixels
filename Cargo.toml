@@ -11,8 +11,10 @@ overflow-checks=false
 panic="abort"
 
 [dependencies]
+arrayvec = { version = "0.7.8", default-features = false }
 bitflags = { version = "2.9.2", default-features = false }
 bitvec = { version = "1.0.1", default-features = false, features = [ "std" ] }
 egui-macroquad = { version = "0.17.3", default-features = false }
 macroquad = { version = "0.4.14", default-features = false }
+nalgebra = { version = "0.35.0", default-features = false }
 slotmap = { version = "1.0.7", default-features = false }

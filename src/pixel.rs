@@ -11,8 +11,12 @@ new_key_type! {
     pub struct ObjectId;
 }
 
+impl ObjectId {
+    pub fn stat() -> Self { Self(KeyData::from_ffi(1)) }
+}
+
 /// Holds physical properties of a material.
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Default)]
 pub struct PixelMaterial {
     /// The maximum impulse that this material can withstand before breaking.
     pub breaking_impulse: f32,
@@ -51,7 +55,7 @@ pub struct PixelMaterialPair {
 }
 
 /// Holds the world being simulated.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct PixelWorld {
     /// Joints which connect objects together.
     pub joints: Vec<Joint>,
@@ -96,6 +100,18 @@ impl PixelWorld {
     }
 }
 
+impl Default for PixelWorld {
+    fn default() -> Self {
+        let mut objects = SlotMap::default();
+        assert_eq!(objects.insert(PixelObject::new(PixelBody::new(PixelGrid::new(UVec2::ZERO), PixelMaterial::default(), true, true), BLACK, Transform::default())), ObjectId::stat());
+
+        Self {
+            joints: Vec::new(),
+            objects
+        }
+    }
+}
+
 /// Efficiently gathers all external forces over the course of a frame.
 #[derive(Copy, Clone, Debug, Default)]
 pub struct ForceAccumulator {
@@ -117,7 +133,7 @@ pub struct PixelObject {
     /// The location of the object's center of mass.
     pub transform: Transform,
     /// The motion of the object.
-    pub velocity: Velocity
+    pub velocity: Screw
 }
 
 impl PixelObject {
@@ -128,7 +144,7 @@ impl PixelObject {
             color,
             forces: ForceAccumulator::default(),
             transform,
-            velocity: Velocity::default()
+            velocity: Screw::default()
         }
     }
 
@@ -163,7 +179,7 @@ impl PixelObject {
                 self.transform.rotation);
 
             let mut new_object = PixelObject::new(new_body, self.color, new_transform);
-            new_object.velocity = Velocity {
+            new_object.velocity = Screw {
                 angular: self.velocity.angular,
                 linear: self.velocity.linear + self.velocity.angular * (new_transform.position - self.transform.position).rotate(Vec2::Y)
             };

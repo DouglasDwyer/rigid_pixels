@@ -1,3 +1,5 @@
+use arrayvec::ArrayVec;
+
 use crate::solver::*;
 use std::collections::*;
 
@@ -14,6 +16,9 @@ pub struct SequentialImpulse {
 }
 
 impl SequentialImpulse {
+    /// Percentage by which to reduce velocity per second.
+    const DAMPING: f32 = 0.95;
+
     /// A small amount of error to maintain when solving contact constraints.
     /// This ensures that the collision detector consistently picks up on contacts
     /// even after they are initially solved.
@@ -49,6 +54,11 @@ impl SequentialImpulse {
         for _ in 0..self.config.substeps {
             self.apply_impulses(&mut constraints, world);
             integrate_external_forces(world, substep_time);
+
+            for object in world.objects.values_mut() {
+                object.velocity.angular *= Self::DAMPING.powf(substep_time);
+                object.velocity.linear *= Self::DAMPING.powf(substep_time);
+            }
             
             for _ in 0..self.config.velocity_iterations {
                 for constraint in &mut constraints {
@@ -186,10 +196,71 @@ impl SequentialImpulse {
     /// Solves a joint-based velocity constraint.
     fn solve_joint_velocity(&self, constraint: &mut Constraint, world: &mut PixelWorld, delta_time: f32, apply_baumgarte: bool) {
         //println!("preiter ({:?} {:?})", world.objects[constraint.objects()[0]].velocity, world.objects[constraint.objects()[1]].velocity);
-        let delta_impulse = self.solve_joint_linear_velocity(constraint, world, delta_time, apply_baumgarte);
-        let delta_impulsive_torque = 0.0;//self.solve_joint_angular_velocity(constraint, world, delta_time, apply_baumgarte);
-        Self::apply_impulse(constraint, world, delta_impulse, delta_impulsive_torque);
-        //println!("afteriter {} ({:?} {:?})", constraint.relative_velocity(world), world.objects[constraint.objects()[0]].velocity, world.objects[constraint.objects()[1]].velocity);
+        /*let mut delta_impulse = self.solve_joint_linear_velocity(constraint, world, delta_time, apply_baumgarte);
+        let delta_impulsive_torque = self.solve_joint_angular_velocity(constraint, world, delta_time, apply_baumgarte);
+        Self::apply_impulse(constraint, world, delta_impulse, delta_impulsive_torque);*/
+
+        let ConstraintSource::Joint(joint) = &constraint.source else { panic!() };
+
+        let mut solver = BlockSolver::default();
+
+        /*
+        let x_0 = Vec2::ZERO;
+        let x_1 = Vec2::ZERO;
+
+        let r_0 = Vec2::ZERO;
+        let r_1 = Vec2::ZERO;
+
+        let theta_0 = 0.0;
+        let theta_1 = 0.0;
+
+        let c_trans = x_1 + r_1 - x_0 - r_0;
+        let c_rot = theta_1 - theta_0;
+
+        solver.add_constraint(
+            c_trans.x,
+            [
+                Screw { linear: Vec2::X, angular: -r_0.y },
+                Screw { linear: Vec2::NEG_X, angular: r_1.y }
+            ],
+            0.0
+        );
+        
+        solver.add_constraint(
+            c_trans.y,
+            [
+                Screw { linear: Vec2::Y, angular: r_0.x },
+                Screw { linear: Vec2::NEG_Y, angular: -r_1.x }
+            ],
+            0.0
+        ); */
+    }
+
+    /// Draws an arrow between `start` and `end`.
+    fn draw_arrow(start: Vec2, end: Vec2, color: Color) {
+        // Draw main shaft of the arrow
+        draw_line(start.x, start.y, end.x, end.y, 1.0, color);
+
+        // Calculate direction and angle
+        let direction = end - start;
+        let angle = direction.to_angle();
+
+        // Arrowhead parameters
+        let head_length = 3.0;
+        let head_angle = 0.5;
+
+        let left = vec2(
+            end.x - head_length * (angle - head_angle).cos(),
+            end.y - head_length * (angle - head_angle).sin(),
+        );
+        let right = vec2(
+            end.x - head_length * (angle + head_angle).cos(),
+            end.y - head_length * (angle + head_angle).sin(),
+        );
+
+        // Draw arrowhead
+        draw_line(end.x, end.y, left.x, left.y, 1.0, color);
+        draw_line(end.x, end.y, right.x, right.y, 1.0, color);
     }
 
     /// Solves the translational half of a joint constraint.
@@ -210,12 +281,13 @@ impl SequentialImpulse {
         let relative_displacement = Self::relative_displacement(joint, world);
         let relative_velocity = constraint.relative_velocity(world) - velocity_per_impulse * constraint.impulse;
 
-        let world_to_joint_rotation = Mat2::from_angle(-world.objects[joint.objects[0]].transform.rotation - joint.local_transform[0].rotation);
-        let joint_displacement = world_to_joint_rotation * relative_displacement;
-        let joint_velocity = world_to_joint_rotation * relative_velocity;
+        //let world_to_joint_rotation = Mat2::from_angle(-world.objects[joint.objects[0]].transform.rotation - joint.local_transform[0].rotation);
+        //let joint_displacement = world_to_joint_rotation * relative_displacement;
+        //let joint_velocity = world_to_joint_rotation * relative_velocity;
+        
+        let substep_baumgarte = if apply_baumgarte { self.config.baumgarte / self.config.substeps as f32 } else { 0.0 };
         
         /*
-        let substep_baumgarte = if apply_baumgarte { self.config.baumgarte / self.config.substeps as f32 } else { 0.0 };
         let velocity_lower_bound = Vec2::select(joint_displacement.cmplt(joint.translation_min), Vec2::splat(substep_baumgarte), Vec2::ONE)
             * (joint.translation_min - joint_displacement) / delta_time;
         let velocity_upper_bound = Vec2::select(joint_displacement.cmpgt(joint.translation_max), Vec2::splat(substep_baumgarte), Vec2::ONE)
@@ -224,21 +296,21 @@ impl SequentialImpulse {
         let clamped_velocity = joint_velocity.clamp(velocity_lower_bound, velocity_upper_bound);
         //println!("Dvel {clamped_velocity} vs {relative_velocity} {}", constraint.relative_velocity(world)); */
 
-        let substep_baumgarte = if apply_baumgarte { self.config.baumgarte / self.config.substeps as f32 } else { 0.0 };
+        //let substep_baumgarte = if apply_baumgarte { self.config.baumgarte / self.config.substeps as f32 } else { 0.0 };
+        //
+        //let normal_direction = world_to_joint_rotation.inverse() * Vec2::Y;
+        //let velocity_per_normal_impulse = velocity_per_impulse * normal_direction;
+        //let required_impulse = -(substep_baumgarte * relative_displacement.dot(normal_direction) / delta_time + relative_velocity.dot(normal_direction)) / velocity_per_normal_impulse.dot(normal_direction);
+
         
-        let normal_direction = world_to_joint_rotation.inverse() * Vec2::Y;
-        let velocity_per_normal_impulse = velocity_per_impulse * normal_direction;
-        let required_impulse = -(substep_baumgarte * relative_displacement.dot(normal_direction) / delta_time + relative_velocity.dot(normal_direction)) / velocity_per_normal_impulse.dot(normal_direction);
-
-        /*
-        let desired_velocity = world_to_joint_rotation.inverse() * clamped_velocity;
-        let velocity_delta = desired_velocity - relative_velocity;
+        //let desired_velocity = world_to_joint_rotation.inverse() * joint_velocity;
+        let velocity_delta = -substep_baumgarte * relative_displacement / delta_time - relative_velocity;
 
 
-        let total_impulse = (velocity_per_impulse.inverse() * velocity_delta);//.clamp_length_max(joint.max_force * delta_time);
+        let total_impulse = (velocity_per_impulse.inverse() * velocity_delta).clamp_length_max(joint.max_force * delta_time);
         //println!("vpi {velocity_per_impulse} * {total_impulse} = {velocity_delta} (for relv {relative_velocity}");
-        total_impulse - constraint.impulse */
-        required_impulse * normal_direction - constraint.impulse
+        total_impulse - constraint.impulse
+        //required_impulse * normal_direction - constraint.impulse
     }
 
     /// Solves the rotational half of a joint constraint.
@@ -248,8 +320,8 @@ impl SequentialImpulse {
         let angular_velocity_per_impulsive_torque = Self::angular_velocity_per_impulsive_torque(constraint, world);
         let relative_angular_velocity = constraint.relative_angular_velocity(world);
         
-        let rotation_a = world.objects[constraint.objects()[0]].transform.rotation;
-        let rotation_b = world.objects[constraint.objects()[1]].transform.rotation;
+        let rotation_a = world.objects[constraint.objects()[0]].transform.rotation + joint.local_transform[0].rotation;
+        let rotation_b = world.objects[constraint.objects()[1]].transform.rotation + joint.local_transform[1].rotation;
         let angle_difference = Vec2::from_angle(rotation_b).angle_between(Vec2::from_angle(rotation_a));
 
         // todo here: figure out how to clamp the angles (and ensure rotational freedom when desired)...
@@ -306,7 +378,7 @@ impl SequentialImpulse {
             let object = &mut world.objects[id];
             let body_impulsive_torque = relative_position.perp_dot(impulse) + impulsive_torque;
             let sign = [-1.0, 1.0][index];
-            object.velocity += Velocity {
+            object.velocity += Screw {
                 linear: sign * object.body.inverse_mass() * impulse,
                 angular: sign * object.body.inverse_inertia_tensor() * body_impulsive_torque
             };
@@ -426,7 +498,7 @@ impl Constraint {
         match &self.source {
             ConstraintSource::Contact(contact) => contact.local_position,
             ConstraintSource::Joint(joint) => [
-                world.objects[joint.objects[0]].transform.inverse() * world.objects[joint.objects[1]].transform * joint.local_transform[1].position,
+                joint.local_transform[0].position,
                 joint.local_transform[1].position,
             ]
         }
@@ -508,5 +580,98 @@ impl From<Contact> for ConstraintSource {
 impl From<Joint> for ConstraintSource {
     fn from(value: Joint) -> Self {
         Self::Joint(value)
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+struct MassProperties {
+    inverse_inertia: f32,
+    inverse_mass: f32,
+}
+
+#[derive(Debug, Default)]
+struct BlockSolver {
+    j_rows: BlockSolverArray<[Screw; 2]>,
+    zetas: BlockSolverArray<f32>
+}
+
+impl BlockSolver {
+    pub fn add_constraint(&mut self, j: [Screw; 2], zeta: f32) {
+        self.j_rows.push(j);
+        self.zetas.push(zeta);
+    }
+
+    pub fn solve(&self, v: [Screw; 2], masses: [MassProperties; 2]) -> BlockSolverArray<f32> {
+        // todo: have this instead return a Screw to apply to both bodies
+        // todo: refactor to use nalgebra to write out the matrices all nicely
+
+        let b = self.calculate_j_v_plus_zeta(v);
+        let mut result = BlockSolverArray::new();
+
+        match self.j_rows.len() {
+            0 => {},
+            1 => {
+                result.push(b[0] / self.k_entry(0, 0, masses));
+            },
+            2 => {
+                let k = Mat2::from_cols(
+                    vec2(self.k_entry(0, 0, masses), self.k_entry(1, 0, masses)),
+                    vec2(self.k_entry(0, 1, masses), self.k_entry(1, 1, masses))
+                );
+
+                let lambda = k.inverse() * vec2(b[0], b[1]);
+                result.push(lambda.x);
+                result.push(lambda.y);
+            },
+            3 => {
+                let k = Mat3::from_cols(
+                    vec3(self.k_entry(0, 0, masses), self.k_entry(1, 0, masses), self.k_entry(2, 0, masses)),
+                    vec3(self.k_entry(0, 1, masses), self.k_entry(1, 1, masses), self.k_entry(2, 1, masses)),
+                    vec3(self.k_entry(0, 2, masses), self.k_entry(1, 2, masses), self.k_entry(2, 2, masses))
+                );
+
+                let lambda = k.inverse() * vec3(b[0], b[1], b[2]);
+                result.push(lambda.x);
+                result.push(lambda.y);
+                result.push(lambda.z);
+            },
+            _ => unreachable!()
+        }
+
+        result
+    }
+
+    /// Computes entry `(i, j)` of the effective mass matrix `J * M^-1 * J^T`.
+    fn k_entry(&self, i: usize, j: usize, masses: [MassProperties; 2]) -> f32 {
+        let row_i = self.j_rows[i];
+        let row_j = self.j_rows[j];
+
+        (0..2).map(|body| {
+            masses[body].inverse_mass * row_i[body].linear.dot(row_j[body].linear)
+                + masses[body].inverse_inertia * row_i[body].angular * row_j[body].angular
+        }).sum()
+    }
+
+    fn calculate_j_v_plus_zeta(&self, v: [Screw; 2]) -> BlockSolverArray<f32> {
+        let mut result = BlockSolverArray::new();
+
+        for i in 0..self.j_rows.len() {
+            let j = self.j_rows[i];
+            let zeta = self.zetas[i];
+            result.push(j[0].dot(v[0]) + j[1].dot(v[1]) + zeta);
+        }
+
+        result
+    }
+}
+
+type BlockSolverArray<T> = ArrayVec<T, 3>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_fixed_joint() {
     }
 }

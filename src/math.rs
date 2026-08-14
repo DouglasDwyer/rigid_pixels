@@ -21,7 +21,7 @@ impl Transform {
     }
 
     /// Updates the position and rotation based upon `velocity` over a time interval `dt`.
-    pub fn integrate_velocity(self, dt: f32, velocity: Velocity) -> Self {
+    pub fn integrate_velocity(self, dt: f32, velocity: Screw) -> Self {
         Self::new(self.position + dt * velocity.linear, (self.rotation + dt * velocity.angular).rem_euclid(std::f32::consts::TAU))
     }
 
@@ -63,16 +63,18 @@ impl Mul<Vec2> for Transform {
     }
 }
 
-/// How fast an object is moving, and in what direction.
+/// Defines a [mathematical screw](https://en.wikipedia.org/wiki/Screw_theory):
+/// a three-vector with linear and angular components. Useful for representing
+/// velocity, acceleration, and forces in two dimensions.
 #[derive(Copy, Clone, Debug, Default)]
-pub struct Velocity {
+pub struct Screw {
     /// The linear portion of motion.
     pub linear: Vec2,
     /// The rotational portion of motion.
     pub angular: f32
 }
 
-impl Velocity {
+impl Screw {
     /// Updates this velocity based upon an application of `force` over a time interval `dt`.
     pub fn integrate_force(self, dt: f32, force: ForceAccumulator, body: &PixelBody) -> Self {
         Self {
@@ -80,9 +82,13 @@ impl Velocity {
             angular: self.angular + dt * body.inverse_inertia_tensor() * force.torque
         }
     }
+
+    pub fn dot(self, rhs: Self) -> f32 {
+        self.linear.dot(rhs.linear) + self.angular * rhs.angular
+    }
 }
 
-impl Add for Velocity {
+impl Add for Screw {
     type Output = Self;
 
     fn add(self, rhs: Self) -> Self::Output {
@@ -93,13 +99,13 @@ impl Add for Velocity {
     }
 }
 
-impl AddAssign for Velocity {
+impl AddAssign for Screw {
     fn add_assign(&mut self, rhs: Self) {
         *self = *self + rhs;
     }
 }
 
-impl Sub for Velocity {
+impl Sub for Screw {
     type Output = Self;
 
     fn sub(self, rhs: Self) -> Self::Output {
@@ -110,13 +116,13 @@ impl Sub for Velocity {
     }
 }
 
-impl SubAssign for Velocity {
+impl SubAssign for Screw {
     fn sub_assign(&mut self, rhs: Self) {
         *self = *self - rhs;
     }
 }
 
-impl Mul<f32> for Velocity {
+impl Mul<f32> for Screw {
     type Output = Self;
 
     fn mul(self, rhs: f32) -> Self::Output {
@@ -127,17 +133,17 @@ impl Mul<f32> for Velocity {
     }
 }
 
-impl MulAssign<f32> for Velocity {
+impl MulAssign<f32> for Screw {
     fn mul_assign(&mut self, rhs: f32) {
         *self = *self * rhs;
     }
 }
 
-impl Mul<Velocity> for f32 {
-    type Output = Velocity;
+impl Mul<Screw> for f32 {
+    type Output = Screw;
 
-    fn mul(self, rhs: Velocity) -> Self::Output {
-        Velocity {
+    fn mul(self, rhs: Screw) -> Self::Output {
+        Screw {
             linear: self * rhs.linear,
             angular: self * rhs.angular
         }

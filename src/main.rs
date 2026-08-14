@@ -44,8 +44,6 @@ mod solver;
 
 /// Holds all state for the world simulation.
 pub struct Simulation {
-    /// The camera to use during rendering.
-    camera: Camera,
     /// Lookup table for fracture patterns.
     fracture_lut: FractureLut,
     /// The time of the last physics update.
@@ -62,7 +60,6 @@ impl Simulation {
     /// Initializes a new simulation.
     pub fn new(physics: PhysicsEngine, start_time: f64, world: PixelWorld) -> Self {
         Self {
-            camera: Camera::default(),
             fracture_lut: FractureLut::generate(),
             last_update: start_time,
             physics,
@@ -73,6 +70,19 @@ impl Simulation {
 
     /// Updates the simulation, advancing to `time` (since simulation start in seconds).
     pub fn update(&mut self, time: f64) {
+        clear_background(Color::new(0.8, 0.2, 0.6, 1.0));
+
+        let mouse_object = &mut self.world.objects[ObjectId::stat()];
+        let mut new_mouse_position = mouse_object.transform.position;
+        egui_macroquad::cfg(|ctx| ctx.input(|i| {
+            if let Some(latest_pos) = i.pointer.latest_pos() {
+                let screen_world_matrix = self.renderer.camera().screen_world_matrix(vec2(screen_width(), screen_height()), screen_dpi_scale());
+                new_mouse_position = screen_world_matrix.inverse().transform_point2(vec2(latest_pos.x, latest_pos.y));
+            }
+        }));
+
+        mouse_object.velocity = Screw { linear: (new_mouse_position - mouse_object.transform.position) / get_frame_time(), angular: 0.0 };
+
         self.test_force_generator();
         
         while self.last_update < time {
@@ -93,6 +103,8 @@ impl Simulation {
         self.despawn_far_objects();
         self.clear_force_accumulators();
 
+        self.world.objects[ObjectId::stat()].transform.position = new_mouse_position;
+        
         self.renderer.draw(&self.physics, &mut self.world);
     }
 
@@ -225,6 +237,18 @@ pub struct JointDescriptor {
 }
 
 impl JointDescriptor {
+    /// Allow no forms of motion.
+    pub fn fixed() -> Self {
+        Self {
+            max_force: f32::MAX,
+            max_torque: f32::MAX,
+            translation_max: Vec2::ZERO,
+            translation_min: Vec2::ZERO,
+            rotation_max: 0.0,
+            rotation_min: 0.0
+        }
+    }
+
     /// Allow all forms of motion.
     pub fn free() -> Self {
         Self {
@@ -338,7 +362,7 @@ async fn main() {
             warm_starting: true
         })),
         delta_time: 0.02
-    }, get_time(), scene::double_box());
+    }, get_time(), scene::box_pyramid());
 
     loop {
         simulation.update(get_time());
@@ -382,15 +406,45 @@ Things to think about:
     Or the order of detection, solving, and velocity integration?
   > My guess is speculative contacts in general don't handle this case. Is there any workaround?
 
-- Big flaw in the joints math - constraints were adding energy. Constraints should only act along axes which are fixed
-  > How do we simulateneously solve for multiple constrained axes? How do we handle axes with limits?
-
 - There were NaNs in collision detection when voxels clipped through the opposite side of an edge. How did the 3D engine handle this?
 
 - Box2D tracks something called totalNormalImpulse to check whether any impulse was EVER generated for a speculative contact.
   It prevents restitution from being applied to contacts without it. How important is this?
 
+
+
+- Big flaw in the joints math - constraints were adding energy. Constraints should only act along axes which are fixed
+  > How do we simulateneously solve for multiple constrained axes? How do we handle axes with limits?
+
+- Maintaining constraint velocity is important.
+  > This means for things like mouse constraints, the position can't be "teleported" while the velocity stays 0
+  > To get good-looking results, either need to tie all constraints to kinematic bodies, or have kinematic tracking of constraint positions
+  > Does it make sense to allow for modifying a constraint after its creation? If yes, does it make sense to allow for a "kinematic constraint"
+    where the target position moves dynamically?
+  > What does Unity's API look like for this?
+- How should we handle joints if a body gets deleted?
+  > A: require the removal of all joints referencing that body first?
+  > B: Implicitly delete the joint? But then what happens when user code has existing references?
+- Capping constraint force/torque still yields strange results for dragging objects, if constraint error larger than some threshold should
+  probably switch to pointwise constraint for mouse clicking
+
+- Technical implementation of joints. Need to specify how to support at a minimum:
+  - Axis constraints (0, 1, 2, 3 translational DoF and 0, 1, 3 rotational DOF)
+  - Axis limits
+  - Force/torque limits (do we just clamp the force OR do we perform another solve at the boundary..?)
+  - Motors (can this be incorporated as a minimum torque limit? Should the motors have a target speed)
+  - Speculative contacts
+  - Restitution (have stuff bounce)
+  - Springs (can this be done by introducing a generalized "constraint hardness")?
+
+
 - In 3D, rotation is a quaternion. How to independently limit each axis?
   > Consider using the Jolt engine as a reference. It only keeps the "twist" from the swing/twist decomposition.
+
+
+- Teardown supports:
+  > Ball (0/3 DoF), hinge (0/1 DoF), cone (0/2 DoF), prismatic (1/0 DoF)
+  > Doors that are 2 vx wide don't work very well - need either a 1 vx thick door or 1 vx thick border
+    (so we may need to improve 1 vx thick texturing)
 
 */

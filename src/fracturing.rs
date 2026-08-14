@@ -2,9 +2,10 @@ use crate::*;
 use std::collections::*;
 
 /// Describes the type of fracture that should occur for an object.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum FracturePatternId {
     /// Objects will crumble into round, volumetric pieces.
+    #[default]
     Clumps,
     /// Objects will shatter into thin sheets.
     Shards,

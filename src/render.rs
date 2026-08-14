@@ -11,6 +11,11 @@ pub struct Renderer {
 }
 
 impl Renderer {
+    /// Gets the camera that dictates what to render.
+    pub fn camera(&self) -> Camera {
+        self.camera
+    }
+
     /// Draws the simulation to the screen, including a visual representation
     /// of the world and the UI.
     pub fn draw(&mut self, physics: &PhysicsEngine, world: &mut PixelWorld) {
@@ -21,7 +26,6 @@ impl Renderer {
 
     /// Draws the 2D world, including objects and physics engine debug output.
     fn draw_world(&self, physics: &PhysicsEngine, world: &PixelWorld) {
-        clear_background(Color::new(0.8, 0.2, 0.6, 1.0));
         self.draw_objects(world);
         self.draw_joints(world);
         self.draw_contacts(physics.detector.contacts());
@@ -202,20 +206,22 @@ impl Renderer {
     }
 
     fn update_dragged_object(&mut self, ctx: &egui::Context, world: &mut PixelWorld) {
+        let screen_world_matrix = self.camera.screen_world_matrix(vec2(screen_width(), screen_height()), screen_dpi_scale());
+
         if self.dragged_object.is_some_and(|x| !world.objects.contains_key(x.id)) {
+            world.joints.remove(self.dragged_object.unwrap().joint_index);
             self.dragged_object = None;
         }
 
         let wants_pointer_input = ctx.wants_pointer_input();
         ctx.input(|i| {
-            let screen_world_matrix = self.camera.screen_world_matrix(vec2(screen_width(), screen_height()), screen_dpi_scale());
             if !wants_pointer_input
                 && let Some(latest_pos) = i.pointer.latest_pos() {
                 let position = screen_world_matrix.inverse().transform_point2(vec2(latest_pos.x, latest_pos.y));
 
                 if i.pointer.secondary_down() {
                     if let Some(dragged) = self.dragged_object {
-                        let object = &mut world.objects[dragged.id];
+                        /*let object = &mut world.objects[dragged.id];
                         let mass = object.body.inverse_mass().max(0.01).recip();
 
                         let spring = Spring {
@@ -229,13 +235,15 @@ impl Renderer {
                         let point_velocity = Vec2::Y.rotate(world_space_point - object.transform.position) * object.velocity.angular + object.velocity.linear;
                         
                         object.velocity *= 0.15f32.powf(i.stable_dt);
-                        object.add_force(world_space_point, spring.force(world_space_point, point_velocity));
+                        object.add_force(world_space_point, spring.force(world_space_point, point_velocity));*/
+                        //world.joints[dragged.joint_index].local_transform[1].position = position;
                     }
                     else if i.pointer.secondary_pressed() {
                         self.select_dragged_object(position, world);
                     }
                 }
                 else {
+                    if self.dragged_object.is_some() { world.joints.remove(self.dragged_object.unwrap().joint_index); }
                     self.dragged_object = None;
                     if i.pointer.primary_down() {
                         self.destroy_at_position(position, world);
@@ -243,6 +251,7 @@ impl Renderer {
                 }
             }
             else {
+                if self.dragged_object.is_some() { world.joints.remove(self.dragged_object.unwrap().joint_index); }
                 self.dragged_object = None;
             }
         });
@@ -266,11 +275,18 @@ impl Renderer {
     fn select_dragged_object(&mut self, position: Vec2, world: &mut PixelWorld) {
         for (id, object) in &mut world.objects {
             let clicked_position = object.world_grid_matrix().inverse().transform_point2(position);
-            if object.body.grid().get_or_empty(clicked_position.floor().as_ivec2().as_uvec2()) {
-                object.velocity = Velocity::default();
+            if 0.0 < object.body.inverse_mass() && object.body.grid().get_or_empty(clicked_position.floor().as_ivec2().as_uvec2()) {
+                object.velocity = Screw::default();
+                let relative_position = object.transform.to_matrix().inverse().transform_point2(position);
+                let joint_index = world.joints.len();
+                world.insert_joint([id, ObjectId::stat()], Transform::new(position, 0.0), JointDescriptor::fixed()
+                    .max_force(20000.0)
+                    .max_torque(100.0));
+
                 self.dragged_object = Some(DraggedObject {
                     id,
-                    relative_position: object.transform.to_matrix().inverse().transform_point2(position)
+                    relative_position,
+                    joint_index
                 });
                 break;
             }
@@ -316,5 +332,7 @@ struct DraggedObject {
     /// The ID of the object being dragged.
     pub id: ObjectId,
     /// The position in body space that was clicked.
-    pub relative_position: Vec2
+    pub relative_position: Vec2,
+    /// The index of the joint created to move the object.
+    pub joint_index: usize
 }
