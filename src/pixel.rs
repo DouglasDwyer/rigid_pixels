@@ -200,9 +200,9 @@ impl PixelObject {
 #[derive(Copy, Clone, Debug)]
 pub struct MassProperties {
     /// The inverse of `I`.
-    inverse_inertia_tensor: f32,
+    pub inverse_inertia_tensor: f32,
     /// The value of `m`.
-    inverse_mass: f32,
+    pub inverse_mass: f32,
 }
 
 /// Holds intrinsic data about a rigid object.
@@ -272,6 +272,14 @@ impl PixelBody {
     /// The inverse of the moment of inertia.
     pub fn inverse_inertia_tensor(&self) -> f32 {
         self.inverse_inertia_tensor
+    }
+
+    /// Gets the inverse mass/inertia of this object.
+    pub fn mass_properties(&self) -> MassProperties {
+        MassProperties {
+            inverse_inertia_tensor: self.inverse_inertia_tensor,
+            inverse_mass: self.inverse_mass
+        }
     }
 
     /// Gets the material properties for this object.

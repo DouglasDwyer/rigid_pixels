@@ -196,48 +196,47 @@ impl SequentialImpulse {
 
     /// Solves a joint-based velocity constraint.
     fn solve_joint_velocity(&self, constraint: &mut Constraint, world: &mut PixelWorld, delta_time: f32, apply_baumgarte: bool) {
-        //println!("preiter ({:?} {:?})", world.objects[constraint.objects()[0]].velocity, world.objects[constraint.objects()[1]].velocity);
-        /*let mut delta_impulse = self.solve_joint_linear_velocity(constraint, world, delta_time, apply_baumgarte);
-        let delta_impulsive_torque = self.solve_joint_angular_velocity(constraint, world, delta_time, apply_baumgarte);
-        Self::apply_impulse(constraint, world, delta_impulse, delta_impulsive_torque);*/
+        // For now, just implement a translational fixed joint.
 
         let ConstraintSource::Joint(joint) = &constraint.source else { panic!() };
 
+        let objects = joint.objects.map(|id| &world.objects[id]);
+
         let mut solver = BlockSolver::new(
-            [world.objects[joint.objects[0]].velocity, world.objects[joint.objects[1]].velocity],
-            [world.]
+            [objects[0].velocity, objects[1].velocity],
+            [objects[0].body.mass_properties(), objects[1].body.mass_properties()]
         );
 
-        /*
-        let x_0 = Vec2::ZERO;
-        let x_1 = Vec2::ZERO;
+        // todo: baumgarte
+        //let relative_displacement = Self::relative_displacement(joint, world);
+        //let relative_angle = objects[1].transform.rotation - objects[0].transform.rotation;
 
-        let r_0 = Vec2::ZERO;
-        let r_1 = Vec2::ZERO;
+        let relative_offsets = [
+            objects[0].transform * joint.local_transform[0].position - objects[0].transform.position,
+            objects[1].transform * joint.local_transform[1].position - objects[1].transform.position
+        ];
 
-        let theta_0 = 0.0;
-        let theta_1 = 0.0;
-
-        let c_trans = x_1 + r_1 - x_0 - r_0;
-        let c_rot = theta_1 - theta_0;
-
-        solver.add_constraint(
-            c_trans.x,
-            [
-                Screw { linear: Vec2::X, angular: -r_0.y },
-                Screw { linear: Vec2::NEG_X, angular: r_1.y }
+        solver.add_constraint(BlockConstraint {
+            j: [
+                Screw { linear: Vec2::X, angular: -relative_offsets[0].y },
+                Screw { linear: Vec2::NEG_X, angular: relative_offsets[1].y }
             ],
-            0.0
-        );
+            lambda_limits: -f32::INFINITY..=f32::INFINITY,
+            zeta: 0.0
+        });
         
-        solver.add_constraint(
-            c_trans.y,
-            [
-                Screw { linear: Vec2::Y, angular: r_0.x },
-                Screw { linear: Vec2::NEG_Y, angular: -r_1.x }
+        solver.add_constraint(BlockConstraint {
+            j: [
+                Screw { linear: Vec2::Y, angular: relative_offsets[0].x },
+                Screw { linear: Vec2::NEG_Y, angular: -relative_offsets[1].x }
             ],
-            0.0
-        ); */
+            lambda_limits: -f32::INFINITY..=f32::INFINITY,
+            zeta: 0.0
+        });
+
+        let impulses = solver.solve();
+
+        // todo: 
     }
 
     /// Draws an arrow between `start` and `end`.
@@ -265,76 +264,6 @@ impl SequentialImpulse {
         // Draw arrowhead
         draw_line(end.x, end.y, left.x, left.y, 1.0, color);
         draw_line(end.x, end.y, right.x, right.y, 1.0, color);
-    }
-
-    /// Solves the translational half of a joint constraint.
-    fn solve_joint_linear_velocity(&self, constraint: &Constraint, world: &PixelWorld, delta_time: f32, apply_baumgarte: bool) -> Vec2 {
-        let ConstraintSource::Joint(joint) = &constraint.source else { panic!("Called solve_joint_velocity on non-joint constraint") };
-        
-        /*
-        
-        Key thing that's not working:
-         - The joint velocity should NOT CHANGE the velocity along unconstrained axes
-         - Right now, the joint's existence appears to be ADDING velocity horizontally.
-         - This shouldn't happen since `relative_velocity` is set to the velocity WITHOUT the constraint being there
-         - So the solution should attempt to preserve the ORIGINAL horizontal velocity rather than adding more.
-        
-         */
-
-        let velocity_per_impulse = Self::velocity_per_impulse(constraint, world);
-        let relative_displacement = Self::relative_displacement(joint, world);
-        let relative_velocity = constraint.relative_velocity(world) - velocity_per_impulse * constraint.impulse;
-
-        //let world_to_joint_rotation = Mat2::from_angle(-world.objects[joint.objects[0]].transform.rotation - joint.local_transform[0].rotation);
-        //let joint_displacement = world_to_joint_rotation * relative_displacement;
-        //let joint_velocity = world_to_joint_rotation * relative_velocity;
-        
-        let substep_baumgarte = if apply_baumgarte { self.config.baumgarte / self.config.substeps as f32 } else { 0.0 };
-        
-        /*
-        let velocity_lower_bound = Vec2::select(joint_displacement.cmplt(joint.translation_min), Vec2::splat(substep_baumgarte), Vec2::ONE)
-            * (joint.translation_min - joint_displacement) / delta_time;
-        let velocity_upper_bound = Vec2::select(joint_displacement.cmpgt(joint.translation_max), Vec2::splat(substep_baumgarte), Vec2::ONE)
-            * (joint.translation_max - joint_displacement) / delta_time;
-
-        let clamped_velocity = joint_velocity.clamp(velocity_lower_bound, velocity_upper_bound);
-        //println!("Dvel {clamped_velocity} vs {relative_velocity} {}", constraint.relative_velocity(world)); */
-
-        //let substep_baumgarte = if apply_baumgarte { self.config.baumgarte / self.config.substeps as f32 } else { 0.0 };
-        //
-        //let normal_direction = world_to_joint_rotation.inverse() * Vec2::Y;
-        //let velocity_per_normal_impulse = velocity_per_impulse * normal_direction;
-        //let required_impulse = -(substep_baumgarte * relative_displacement.dot(normal_direction) / delta_time + relative_velocity.dot(normal_direction)) / velocity_per_normal_impulse.dot(normal_direction);
-
-        
-        //let desired_velocity = world_to_joint_rotation.inverse() * joint_velocity;
-        let velocity_delta = -substep_baumgarte * relative_displacement / delta_time - relative_velocity;
-
-
-        let total_impulse = (velocity_per_impulse.inverse() * velocity_delta).clamp_length_max(joint.max_force * delta_time);
-        //println!("vpi {velocity_per_impulse} * {total_impulse} = {velocity_delta} (for relv {relative_velocity}");
-        total_impulse - constraint.impulse
-        //required_impulse * normal_direction - constraint.impulse
-    }
-
-    /// Solves the rotational half of a joint constraint.
-    fn solve_joint_angular_velocity(&self, constraint: &Constraint, world: &PixelWorld, delta_time: f32, apply_baumgarte: bool) -> f32 {
-        let ConstraintSource::Joint(joint) = &constraint.source else { panic!("Called solve_joint_velocity on non-joint constraint") };
-        
-        let angular_velocity_per_impulsive_torque = Self::angular_velocity_per_impulsive_torque(constraint, world);
-        let relative_angular_velocity = constraint.relative_angular_velocity(world);
-        
-        let rotation_a = world.objects[constraint.objects()[0]].transform.rotation + joint.local_transform[0].rotation;
-        let rotation_b = world.objects[constraint.objects()[1]].transform.rotation + joint.local_transform[1].rotation;
-        let angle_difference = Vec2::from_angle(rotation_b).angle_between(Vec2::from_angle(rotation_a));
-
-        // todo here: figure out how to clamp the angles (and ensure rotational freedom when desired)...
-        let substep_baumgarte = if apply_baumgarte { self.config.baumgarte / self.config.substeps as f32 } else { 0.0 };
-        let angular_velocity_to_kill = relative_angular_velocity - substep_baumgarte * angle_difference / delta_time;
-        let torque = -angular_velocity_per_impulsive_torque.recip() * angular_velocity_to_kill;
-
-        let total_impulsive_torque = (torque + constraint.impulsive_torque).clamp(-joint.max_torque, joint.max_torque);
-        total_impulsive_torque - constraint.impulsive_torque
     }
 
     /// Caches the forces from this tick. The forces will be used in warm-starting
@@ -596,60 +525,89 @@ struct BlockConstraint {
 }
 
 struct BlockSolver {
-    constraints: BlockSolverArray<BlockConstraint>,
+    lambda_max: Vector3<f32>,
+    lambda_min: Vector3<f32>,
+    len: usize,
+    j_t: Matrix6<f32>,
     m: [MassProperties; 2],
-    v: [Screw; 2]
+    v: Vector6<f32>,
+    zeta: Vector3<f32>
 }
 
 impl BlockSolver {
     pub fn new(v: [Screw; 2], m: [MassProperties; 2]) -> Self {
         Self {
-            constraints: BlockSolverArray::new(),
+            lambda_max: Vector3::zeros(),
+            lambda_min: Vector3::zeros(),
+            len: 0,
+            j_t: Matrix6::zeros(),
             m,
-            v,
+            v: Vector6::new(
+                v[0].linear.x,
+                v[0].linear.y,
+                v[0].angular,
+                v[1].linear.x,
+                v[1].linear.y,
+                v[1].angular,
+            ),
+            zeta: Vector3::zeros()
         }
     }
 
     pub fn add_constraint(&mut self, constraint: BlockConstraint) {
-        self.constraints.push(constraint);
+        assert!(self.len < 3);
+
+        self.lambda_max[self.len] = *constraint.lambda_limits.end();
+        self.lambda_min[self.len] = *constraint.lambda_limits.start();
+        self.j_t.set_column(self.len, &Vector6::new(
+            constraint.j[0].linear.x,
+            constraint.j[0].linear.y,
+            constraint.j[0].angular,
+            constraint.j[1].linear.x,
+            constraint.j[1].linear.y,
+            constraint.j[1].angular,
+        ));
+        self.zeta[self.len] = constraint.zeta;
+
+        self.len += 1;
     }
 
     pub fn solve(&self) -> [Screw; 2] {
-        match self.constraints.len() {
+        let m_inv = Matrix6::from_diagonal(&Vector6::new(
+            self.m[0].inverse_mass,
+            self.m[0].inverse_mass,
+            self.m[0].inverse_inertia_tensor,
+            self.m[1].inverse_mass,
+            self.m[1].inverse_mass,
+            self.m[1].inverse_inertia_tensor
+        ));
+
+        match self.len {
             0 => [Screw::default(); _],
-            1 => self.solve_cols::<1>(),
-            2 => self.solve_cols::<2>(),
-            3 => self.solve_cols::<3>(),
+            1 => self.solve_cols::<1>(m_inv),
+            2 => self.solve_cols::<2>(m_inv),
+            3 => self.solve_cols::<3>(m_inv),
             _ => unreachable!()
         }
     }
 
-    fn m_inv(&self) -> Matrix6<f32> {
-        Matrix6::from_diagonal(&Vector6::new(
-            self.m[0].inverse_mass,
-            self.m[0].inverse_mass,
-            self.m[0].inverse_inertia,
-            self.m[1].inverse_mass,
-            self.m[1].inverse_mass,
-            self.m[1].inverse_inertia
-        ))
-    }
-
-    fn solve_cols<const C: usize>(&self) -> [Screw; 2] {
+    fn solve_cols<const C: usize>(&self, m_inv: Matrix6<f32>) -> [Screw; 2] {
         // Solve for λ:
         // JM⁻¹Jᵀλ = ζ - JV
 
-        let m_inv = self.m_inv();
-        let j = self.j_cols::<C>();
-        let v = self.v_mat();
-        let zeta = self.zeta_cols();
+        let j = self.j_t.fixed_columns::<C>(0).into_owned().transpose();
+        let v = self.v;
+        let zeta = self.zeta.fixed_rows::<C>(0).into_owned();
+
+        let lambda_max = self.lambda_max.fixed_rows::<C>(0).into_owned();
+        let lambda_min = self.lambda_min.fixed_rows::<C>(0).into_owned();
 
         let k = j * m_inv * j.transpose();
         let rhs = zeta - j * v;
 
-        let (lambda_min, lambda_max) = self.lambda_limit_cols::<C>();
         let cholesky = Cholesky::new(k).expect("cholesky decomp failed");
-        let lambda = cholesky.solve(&rhs).simd_clamp(lambda_min, lambda_max);
+        let lambda = cholesky.solve(&rhs)
+            .simd_clamp(lambda_min, lambda_max);
         
         let delta_v = j.transpose() * lambda;
 
@@ -657,59 +615,6 @@ impl BlockSolver {
             Screw { linear: vec2(delta_v[0], delta_v[1]), angular: delta_v[2] },
             Screw { linear: vec2(delta_v[3], delta_v[4]), angular: delta_v[5] },
         ]
-    }
-
-    fn lambda_limit_cols<const C: usize>(&self) -> (SVector<f32, C>, SVector<f32, C>) {
-        let mut min = SVector::zeros();
-        let mut max = SVector::zeros();
-
-        for i in 0..C {
-            let constraint = &self.constraints[i];
-            min[i] = *constraint.lambda_limits.start();
-            max[i] = *constraint.lambda_limits.end();
-        }
-
-        (min, max)
-    }
-    
-    fn j_cols<const C: usize>(&self) -> SMatrix<f32, C, 6> {
-        let mut result = SMatrix::<f32, 6, C>::zeros();
-
-        for i in 0..C {
-            let constraint = &self.constraints[i];
-            result.set_column(i, &Vector6::new(
-                constraint.j[0].linear.x,
-                constraint.j[0].linear.y,
-                constraint.j[0].angular,
-                constraint.j[1].linear.x,
-                constraint.j[1].linear.y,
-                constraint.j[1].angular,
-            ));
-        }
-
-        result.transpose()
-    }
-
-    fn v_mat(&self) -> Vector6<f32> {
-        Vector6::new(
-            self.v[0].linear.x,
-            self.v[0].linear.y,
-            self.v[0].angular,
-            self.v[1].linear.x,
-            self.v[1].linear.y,
-            self.v[1].angular,
-        )
-    }
-
-    fn zeta_cols<const C: usize>(&self) -> SVector<f32, C> {
-        let mut result = SVector::zeros();
-
-        for i in 0..C {
-            let constraint = &self.constraints[i];
-            result[i] = constraint.zeta;
-        }
-
-        result
     }
 }
 
