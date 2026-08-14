@@ -203,7 +203,10 @@ impl SequentialImpulse {
 
         let ConstraintSource::Joint(joint) = &constraint.source else { panic!() };
 
-        let mut solver = BlockSolver::default();
+        let mut solver = BlockSolver::new(
+            [world.objects[joint.objects[0]].velocity, world.objects[joint.objects[1]].velocity],
+            [world.]
+        );
 
         /*
         let x_0 = Vec2::ZERO;
@@ -584,31 +587,21 @@ impl From<Joint> for ConstraintSource {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
-struct MassProperties {
-    inverse_inertia: f32,
-    inverse_mass: f32,
-}
 
-
-pub type Matrix12x1<T> = Matrix<T, U12, U1, ArrayStorage<T, 12, 1>>;
-pub type Matrix12x2<T> = Matrix<T, U12, U2, ArrayStorage<T, 12, 2>>;
-pub type Matrix12x3<T> = Matrix<T, U12, U3, ArrayStorage<T, 12, 3>>;
-
-#[derive(Copy, Clone, Debug, Default)]
-struct Constraint {
+#[derive(Clone, Debug)]
+struct BlockConstraint {
     j: [Screw; 2],
-    lambda_limits: f32,
+    lambda_limits: RangeInclusive<f32>,
     zeta: f32
 }
 
-struct BlockSolver2 {
-    constraints: BlockSolverArray<Constraint>,
+struct BlockSolver {
+    constraints: BlockSolverArray<BlockConstraint>,
     m: [MassProperties; 2],
     v: [Screw; 2]
 }
 
-impl BlockSolver2 {
+impl BlockSolver {
     pub fn new(v: [Screw; 2], m: [MassProperties; 2]) -> Self {
         Self {
             constraints: BlockSolverArray::new(),
@@ -617,85 +610,103 @@ impl BlockSolver2 {
         }
     }
 
-    pub fn add_constraint(&mut self, constraint: Constraint) {
-        todo!()
+    pub fn add_constraint(&mut self, constraint: BlockConstraint) {
+        self.constraints.push(constraint);
     }
 
     pub fn solve(&self) -> [Screw; 2] {
-        todo!()
-    }
-}
-
-#[derive(Debug, Default)]
-struct BlockSolver {
-    j_rows: BlockSolverArray<[Screw; 2]>,
-    zetas: BlockSolverArray<f32>
-}
-
-impl BlockSolver {
-    pub fn add_constraint(&mut self, j: [Screw; 2], zeta: f32) {
-        self.j_rows.push(j);
-        self.zetas.push(zeta);
-    }
-
-    pub fn solve(&self, v: [Screw; 2], masses: [MassProperties; 2]) -> BlockSolverArray<f32> {
-        // todo: have this instead return a Screw to apply to both bodies
-        // todo: refactor to use nalgebra to write out the matrices all nicely
-
-        let b = self.calculate_j_v_plus_zeta(v);
-        let mut result = BlockSolverArray::new();
-
-        match self.j_rows.len() {
-            0 => {},
-            1 => {
-                result.push(b[0] / self.k_entry(0, 0, masses));
-            },
-            2 => {
-                let k = Mat2::from_cols(
-                    vec2(self.k_entry(0, 0, masses), self.k_entry(1, 0, masses)),
-                    vec2(self.k_entry(0, 1, masses), self.k_entry(1, 1, masses))
-                );
-
-                let lambda = k.inverse() * vec2(b[0], b[1]);
-                result.push(lambda.x);
-                result.push(lambda.y);
-            },
-            3 => {
-                let k = Mat3::from_cols(
-                    vec3(self.k_entry(0, 0, masses), self.k_entry(1, 0, masses), self.k_entry(2, 0, masses)),
-                    vec3(self.k_entry(0, 1, masses), self.k_entry(1, 1, masses), self.k_entry(2, 1, masses)),
-                    vec3(self.k_entry(0, 2, masses), self.k_entry(1, 2, masses), self.k_entry(2, 2, masses))
-                );
-
-                let lambda = k.inverse() * vec3(b[0], b[1], b[2]);
-                result.push(lambda.x);
-                result.push(lambda.y);
-                result.push(lambda.z);
-            },
+        match self.constraints.len() {
+            0 => [Screw::default(); _],
+            1 => self.solve_cols::<1>(),
+            2 => self.solve_cols::<2>(),
+            3 => self.solve_cols::<3>(),
             _ => unreachable!()
         }
-
-        result
     }
 
-    /// Computes entry `(i, j)` of the effective mass matrix `J * M^-1 * J^T`.
-    fn k_entry(&self, i: usize, j: usize, masses: [MassProperties; 2]) -> f32 {
-        let row_i = self.j_rows[i];
-        let row_j = self.j_rows[j];
-
-        (0..2).map(|body| {
-            masses[body].inverse_mass * row_i[body].linear.dot(row_j[body].linear)
-                + masses[body].inverse_inertia * row_i[body].angular * row_j[body].angular
-        }).sum()
+    fn m_inv(&self) -> Matrix6<f32> {
+        Matrix6::from_diagonal(&Vector6::new(
+            self.m[0].inverse_mass,
+            self.m[0].inverse_mass,
+            self.m[0].inverse_inertia,
+            self.m[1].inverse_mass,
+            self.m[1].inverse_mass,
+            self.m[1].inverse_inertia
+        ))
     }
 
-    fn calculate_j_v_plus_zeta(&self, v: [Screw; 2]) -> BlockSolverArray<f32> {
-        let mut result = BlockSolverArray::new();
+    fn solve_cols<const C: usize>(&self) -> [Screw; 2] {
+        // Solve for λ:
+        // JM⁻¹Jᵀλ = ζ - JV
 
-        for i in 0..self.j_rows.len() {
-            let j = self.j_rows[i];
-            let zeta = self.zetas[i];
-            result.push(j[0].dot(v[0]) + j[1].dot(v[1]) + zeta);
+        let m_inv = self.m_inv();
+        let j = self.j_cols::<C>();
+        let v = self.v_mat();
+        let zeta = self.zeta_cols();
+
+        let k = j * m_inv * j.transpose();
+        let rhs = zeta - j * v;
+
+        let (lambda_min, lambda_max) = self.lambda_limit_cols::<C>();
+        let cholesky = Cholesky::new(k).expect("cholesky decomp failed");
+        let lambda = cholesky.solve(&rhs).simd_clamp(lambda_min, lambda_max);
+        
+        let delta_v = j.transpose() * lambda;
+
+        [
+            Screw { linear: vec2(delta_v[0], delta_v[1]), angular: delta_v[2] },
+            Screw { linear: vec2(delta_v[3], delta_v[4]), angular: delta_v[5] },
+        ]
+    }
+
+    fn lambda_limit_cols<const C: usize>(&self) -> (SVector<f32, C>, SVector<f32, C>) {
+        let mut min = SVector::zeros();
+        let mut max = SVector::zeros();
+
+        for i in 0..C {
+            let constraint = &self.constraints[i];
+            min[i] = *constraint.lambda_limits.start();
+            max[i] = *constraint.lambda_limits.end();
+        }
+
+        (min, max)
+    }
+    
+    fn j_cols<const C: usize>(&self) -> SMatrix<f32, C, 6> {
+        let mut result = SMatrix::<f32, 6, C>::zeros();
+
+        for i in 0..C {
+            let constraint = &self.constraints[i];
+            result.set_column(i, &Vector6::new(
+                constraint.j[0].linear.x,
+                constraint.j[0].linear.y,
+                constraint.j[0].angular,
+                constraint.j[1].linear.x,
+                constraint.j[1].linear.y,
+                constraint.j[1].angular,
+            ));
+        }
+
+        result.transpose()
+    }
+
+    fn v_mat(&self) -> Vector6<f32> {
+        Vector6::new(
+            self.v[0].linear.x,
+            self.v[0].linear.y,
+            self.v[0].angular,
+            self.v[1].linear.x,
+            self.v[1].linear.y,
+            self.v[1].angular,
+        )
+    }
+
+    fn zeta_cols<const C: usize>(&self) -> SVector<f32, C> {
+        let mut result = SVector::zeros();
+
+        for i in 0..C {
+            let constraint = &self.constraints[i];
+            result[i] = constraint.zeta;
         }
 
         result
@@ -703,12 +714,3 @@ impl BlockSolver {
 }
 
 type BlockSolverArray<T> = ArrayVec<T, 3>;
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_fixed_joint() {
-    }
-}

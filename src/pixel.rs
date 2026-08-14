@@ -196,6 +196,15 @@ impl PixelObject {
     }
 }
 
+/// The mass properties of an object.
+#[derive(Copy, Clone, Debug)]
+pub struct MassProperties {
+    /// The inverse of `I`.
+    inverse_inertia_tensor: f32,
+    /// The value of `m`.
+    inverse_mass: f32,
+}
+
 /// Holds intrinsic data about a rigid object.
 #[derive(Clone, Debug)]
 pub struct PixelBody {
