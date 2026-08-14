@@ -150,6 +150,17 @@ impl Mul<Screw> for f32 {
     }
 }
 
+impl Neg for Screw {
+    type Output = Self;
+
+    fn neg(self) -> Self::Output {
+        Self {
+            linear: -self.linear,
+            angular: -self.angular
+        }
+    }
+}
+
 /// Computes the outer product of two [`Vec2`]s.
 pub fn vec2_outer_product(lhs: Vec2, rhs: Vec2) -> Mat2 {
     Mat2::from_cols(lhs * rhs.x, lhs * rhs.y)

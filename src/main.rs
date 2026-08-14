@@ -361,8 +361,8 @@ async fn main() {
             velocity_iterations: 1,
             warm_starting: true
         })),
-        delta_time: 0.02
-    }, get_time(), scene::box_pyramid());
+        delta_time: 0.01
+    }, get_time(), scene::hinge_joint());
 
     loop {
         simulation.update(get_time());

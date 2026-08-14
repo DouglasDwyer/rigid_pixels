@@ -85,7 +85,7 @@ impl SequentialImpulse {
         }
 
         for constraint in &mut constraints {
-            self.solve_fracture(constraint, world, delta_time);
+            //self.solve_fracture(constraint, world, delta_time);
         }
     }
 
@@ -119,7 +119,7 @@ impl SequentialImpulse {
                 }
 
                 let excess_impulse = total_normal_impulse - max_immediate_impulse;
-                Self::apply_impulse(constraint, world, -excess_impulse * contact.normal, 0.0);
+                Self::apply_body_impulse(constraint, world, -excess_impulse * contact.normal);
             }
         }
     }
@@ -136,12 +136,12 @@ impl SequentialImpulse {
             let required_impulse = -(relative_velocity + contact.material.restitution * constraint.original_relative_velocity).dot(contact.normal)
                 / normal_velocity_per_impulse.dot(contact.normal);
 
-            let prior_normal_impulse = constraint.impulse.dot(contact.normal);
+            let prior_normal_impulse = constraint.impulses[1].linear.dot(contact.normal);
             let total_impulse = (prior_normal_impulse + required_impulse).max(0.0);
             let delta_impulse = total_impulse - prior_normal_impulse;
 
             constraint.total_impulse += delta_impulse * contact.normal;
-            Self::apply_impulse(constraint, world, delta_impulse * contact.normal, 0.0);
+            Self::apply_body_impulse(constraint, world, delta_impulse * contact.normal);
         }
     }
     
@@ -161,14 +161,14 @@ impl SequentialImpulse {
         let velocity_per_impulse = Self::velocity_per_impulse(constraint, world);
         let impulse_per_velocity = velocity_per_impulse.inverse();
 
-        let static_friction_impulse = constraint.impulse - impulse_per_velocity * relative_velocity;
+        let static_friction_impulse = constraint.impulses[1].linear - impulse_per_velocity * relative_velocity;
         
         let normal_impulse = static_friction_impulse.dot(contact.normal);
         let planar_impulse = static_friction_impulse.reject_from_normalized(contact.normal);
         let planar_impulse_length = planar_impulse.length();
 
         let total_impulse_unclamped = if contact.material.friction * normal_impulse < planar_impulse_length {
-            let relative_velocity_without_impulse = relative_velocity - velocity_per_impulse * constraint.impulse;
+            let relative_velocity_without_impulse = relative_velocity - velocity_per_impulse * constraint.impulses[1].linear;
             let impulse_direction = (contact.normal + contact.material.friction * planar_impulse.normalize_or_zero()).normalize();
             let velocity_per_directed_impulse = velocity_per_impulse * impulse_direction;
             let impulse_magnitude = -relative_velocity_without_impulse.dot(contact.normal) / velocity_per_directed_impulse.dot(contact.normal);
@@ -187,10 +187,10 @@ impl SequentialImpulse {
             total_impulse_unclamped
         };
 
-        let delta_impulse = total_impulse - constraint.impulse;
+        let delta_impulse = total_impulse - constraint.impulses[1].linear;
 
         if !Self::approx_zero(delta_impulse) {
-            Self::apply_impulse(constraint, world, delta_impulse, 0.0);
+            Self::apply_body_impulse(constraint, world, delta_impulse);
         }
     }
 
@@ -198,6 +198,8 @@ impl SequentialImpulse {
     fn solve_joint_velocity(&self, constraint: &mut Constraint, world: &mut PixelWorld, delta_time: f32, apply_baumgarte: bool) {
         // For now, just implement a translational fixed joint.
 
+        // Undo prior guess
+        Self::apply_impulse(constraint, world, constraint.impulses.map(|x| -x));
         let ConstraintSource::Joint(joint) = &constraint.source else { panic!() };
 
         let objects = joint.objects.map(|id| &world.objects[id]);
@@ -207,9 +209,10 @@ impl SequentialImpulse {
             [objects[0].body.mass_properties(), objects[1].body.mass_properties()]
         );
 
-        // todo: baumgarte
-        //let relative_displacement = Self::relative_displacement(joint, world);
-        //let relative_angle = objects[1].transform.rotation - objects[0].transform.rotation;
+        let baumgarte_factor = (self.config.baumgarte / self.config.substeps as f32) / delta_time;
+
+        let relative_displacement = Self::relative_displacement(joint, world);
+        let relative_angle = Vec2::angle_between(Vec2::from_angle(objects[0].transform.rotation), Vec2::from_angle(objects[1].transform.rotation));
 
         let relative_offsets = [
             objects[0].transform * joint.local_transform[0].position - objects[0].transform.position,
@@ -218,25 +221,35 @@ impl SequentialImpulse {
 
         solver.add_constraint(BlockConstraint {
             j: [
-                Screw { linear: Vec2::X, angular: -relative_offsets[0].y },
-                Screw { linear: Vec2::NEG_X, angular: relative_offsets[1].y }
+                Screw { linear: Vec2::NEG_X, angular: relative_offsets[0].y },
+                Screw { linear: Vec2::X, angular: -relative_offsets[1].y }
             ],
             lambda_limits: -f32::INFINITY..=f32::INFINITY,
-            zeta: 0.0
+            zeta: -baumgarte_factor * relative_displacement.x
         });
         
         solver.add_constraint(BlockConstraint {
             j: [
-                Screw { linear: Vec2::Y, angular: relative_offsets[0].x },
-                Screw { linear: Vec2::NEG_Y, angular: -relative_offsets[1].x }
+                Screw { linear: Vec2::NEG_Y, angular: -relative_offsets[0].x },
+                Screw { linear: Vec2::Y, angular: relative_offsets[1].x }
             ],
             lambda_limits: -f32::INFINITY..=f32::INFINITY,
-            zeta: 0.0
+            zeta: -baumgarte_factor * relative_displacement.y
         });
 
-        let impulses = solver.solve();
+        if true {
+            solver.add_constraint(BlockConstraint {
+                j: [
+                    Screw { linear: Vec2::ZERO, angular: -1.0 },
+                    Screw { linear: Vec2::ZERO, angular: 1.0 }
+                ],
+                lambda_limits: -0.0..=0.0,
+                zeta: -baumgarte_factor * relative_angle
+            });
+        }
 
-        // todo: 
+        let impulses = solver.solve();
+        Self::apply_impulse(constraint, world, impulses);
     }
 
     /// Draws an arrow between `start` and `end`.
@@ -272,10 +285,8 @@ impl SequentialImpulse {
         self.force_cache.clear();
         if self.config.warm_starting {
             for constraint in constraints {
-                self.force_cache.insert(constraint.id(), CachedImpulse {
-                    force: constraint.impulse / substep_time,
-                    torque: constraint.impulsive_torque / substep_time
-                });
+                self.force_cache.insert(constraint.id(),
+                    CachedImpulse(constraint.impulses.map(|impulse| impulse * substep_time.recip())));
             }
         }
     }
@@ -283,7 +294,7 @@ impl SequentialImpulse {
     /// Stores the total impulse from the substep.
     fn sum_total_impulse(&mut self, constraints: &mut [Constraint]) {
         for constraint in constraints {
-            constraint.total_impulse += constraint.impulse;
+            constraint.total_impulse += constraint.impulses[1].linear;
         }
     }
 
@@ -291,30 +302,44 @@ impl SequentialImpulse {
     fn apply_impulses(&self, constraints: &mut [Constraint], world: &mut PixelWorld) {
         if self.config.warm_starting {
             for constraint in constraints {
-                let impulse = constraint.impulse;
-                let impulsive_torque = constraint.impulsive_torque;
-                constraint.impulse = Vec2::ZERO;
-                constraint.impulsive_torque = 0.0;
-                Self::apply_impulse(constraint, world, impulse, impulsive_torque);
+                let impulses = constraint.impulses;
+                constraint.impulses = [Screw::default(); 2];
+                Self::apply_impulse(constraint, world, impulses);
             }
         }
     }
 
     /// Applies an impulse from a contact. Updates the contact's total impulse and the velocity of
     /// the associated bodies in the `world`.
-    fn apply_impulse(constraint: &mut Constraint, world: &mut PixelWorld, impulse: Vec2, impulsive_torque: f32) {
-        constraint.impulse += impulse;
-        constraint.impulsive_torque += impulsive_torque;
-
+    fn apply_body_impulse(constraint: &mut Constraint, world: &mut PixelWorld, impulse: Vec2) {
         for (index, id) in constraint.objects().into_iter().enumerate() {
             let relative_position = constraint.local_position(world)[index].rotate(Vec2::from_angle(world.objects[id].transform.rotation));
             let object = &mut world.objects[id];
-            let body_impulsive_torque = relative_position.perp_dot(impulse) + impulsive_torque;
+            let body_impulsive_torque = relative_position.perp_dot(impulse);
             let sign = [-1.0, 1.0][index];
             object.velocity += Screw {
                 linear: sign * object.body.inverse_mass() * impulse,
                 angular: sign * object.body.inverse_inertia_tensor() * body_impulsive_torque
             };
+
+            constraint.impulses[index] += Screw {
+                linear: sign * impulse,
+                angular: sign * body_impulsive_torque
+            };
+        }
+    }
+
+    /// Applies an impulse from a contact. Updates the contact's total impulse and the velocity of
+    /// the associated bodies in the `world`.
+    fn apply_impulse(constraint: &mut Constraint, world: &mut PixelWorld, impulses: [Screw; 2]) {
+        for (index, id) in constraint.objects().into_iter().enumerate() {
+            let object = &mut world.objects[id];
+            object.velocity += Screw {
+                linear: object.body.inverse_mass() * impulses[index].linear,
+                angular: object.body.inverse_inertia_tensor() * impulses[index].angular
+            };
+                
+            constraint.impulses[index] += impulses[index];
         }
     }
 
@@ -388,10 +413,8 @@ impl SequentialImpulse {
 /// Used by the solver for computation.
 #[derive(Debug)]
 struct Constraint {
-    /// The amount of impulse applied (both normal force and friction).
-    pub impulse: Vec2,
-    /// The amount of torque applied for rotation constraints.
-    pub impulsive_torque: f32,
+    /// The amount of impulse applied _at each object's center of mass_.
+    pub impulses: [Screw; 2],
     /// The velocity of the contact at the beginning of the tick, before
     /// applying *any* forces.
     pub original_relative_velocity: Vec2,
@@ -406,8 +429,7 @@ impl Constraint {
     /// the impulse from the cache, if possible.
     pub fn new(source: impl Into<ConstraintSource>, world: &PixelWorld, force_cache: &HashMap<ConstraintId, CachedImpulse>, substep_time: f32) -> Self {
         let mut result = Self {
-            impulse: Vec2::ZERO,
-            impulsive_torque: 0.0,
+            impulses: [Screw::default(); 2],
             original_relative_velocity: Vec2::ZERO,
             source: source.into(),
             total_impulse: Vec2::ZERO
@@ -469,8 +491,7 @@ impl Constraint {
     /// Initializes the impulse and relative velocity when the contact is first created.
     fn initialize(&mut self, world: &PixelWorld, force_cache: &HashMap<ConstraintId, CachedImpulse>, substep_time: f32) {
         if let Some(cached) = force_cache.get(&self.id()) {
-            self.impulse = substep_time * cached.force;
-            self.impulsive_torque = substep_time * cached.torque;
+            self.impulses = cached.0.map(|force| substep_time * force);
         }
 
         self.original_relative_velocity = self.relative_velocity(world);
@@ -497,12 +518,7 @@ enum ConstraintId {
 
 /// Stores the impulses from a [`Constraint`] across frames.
 #[derive(Copy, Clone, Debug)]
-struct CachedImpulse {
-    /// The total amount of impulse applied.
-    pub force: Vec2,
-    /// The amount of torque applied for rotation constraints.
-    pub torque: f32,
-}
+struct CachedImpulse([Screw; 2]);
 
 impl From<Contact> for ConstraintSource {
     fn from(value: Contact) -> Self {
@@ -606,14 +622,18 @@ impl BlockSolver {
         let rhs = zeta - j * v;
 
         let cholesky = Cholesky::new(k).expect("cholesky decomp failed");
-        let lambda = cholesky.solve(&rhs)
-            .simd_clamp(lambda_min, lambda_max);
+        let mut lambda = cholesky.solve(&rhs);
+
+        lambda[2] = 0.0;
+        //for i in 0..C {
+        //    lambda[i] = lambda[i].clamp(self.lambda_min[i], self.lambda_max[i]);
+        //}
         
-        let delta_v = j.transpose() * lambda;
+        let impulses = j.transpose() * lambda;
 
         [
-            Screw { linear: vec2(delta_v[0], delta_v[1]), angular: delta_v[2] },
-            Screw { linear: vec2(delta_v[3], delta_v[4]), angular: delta_v[5] },
+            Screw { linear: vec2(impulses[0], impulses[1]), angular: impulses[2] },
+            Screw { linear: vec2(impulses[3], impulses[4]), angular: impulses[5] },
         ]
     }
 }

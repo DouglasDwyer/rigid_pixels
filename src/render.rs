@@ -221,7 +221,7 @@ impl Renderer {
 
                 if i.pointer.secondary_down() {
                     if let Some(dragged) = self.dragged_object {
-                        /*let object = &mut world.objects[dragged.id];
+                        let object = &mut world.objects[dragged.id];
                         let mass = object.body.inverse_mass().max(0.01).recip();
 
                         let spring = Spring {
@@ -235,7 +235,7 @@ impl Renderer {
                         let point_velocity = Vec2::Y.rotate(world_space_point - object.transform.position) * object.velocity.angular + object.velocity.linear;
                         
                         object.velocity *= 0.15f32.powf(i.stable_dt);
-                        object.add_force(world_space_point, spring.force(world_space_point, point_velocity));*/
+                        object.add_force(world_space_point, spring.force(world_space_point, point_velocity));
                         //world.joints[dragged.joint_index].local_transform[1].position = position;
                     }
                     else if i.pointer.secondary_pressed() {
@@ -243,7 +243,7 @@ impl Renderer {
                     }
                 }
                 else {
-                    if self.dragged_object.is_some() { world.joints.remove(self.dragged_object.unwrap().joint_index); }
+                    //if self.dragged_object.is_some() { world.joints.remove(self.dragged_object.unwrap().joint_index); }
                     self.dragged_object = None;
                     if i.pointer.primary_down() {
                         self.destroy_at_position(position, world);
@@ -251,7 +251,7 @@ impl Renderer {
                 }
             }
             else {
-                if self.dragged_object.is_some() { world.joints.remove(self.dragged_object.unwrap().joint_index); }
+                //if self.dragged_object.is_some() { world.joints.remove(self.dragged_object.unwrap().joint_index); }
                 self.dragged_object = None;
             }
         });
@@ -279,9 +279,9 @@ impl Renderer {
                 object.velocity = Screw::default();
                 let relative_position = object.transform.to_matrix().inverse().transform_point2(position);
                 let joint_index = world.joints.len();
-                world.insert_joint([id, ObjectId::stat()], Transform::new(position, 0.0), JointDescriptor::fixed()
-                    .max_force(20000.0)
-                    .max_torque(100.0));
+                //world.insert_joint([id, ObjectId::stat()], Transform::new(position, 0.0), JointDescriptor::fixed()
+                //    .max_force(20000.0)
+                //    .max_torque(100.0));
 
                 self.dragged_object = Some(DraggedObject {
                     id,
