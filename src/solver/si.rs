@@ -209,7 +209,7 @@ impl SequentialImpulse {
             [objects[0].body.mass_properties(), objects[1].body.mass_properties()]
         );
 
-        let baumgarte_factor = (self.config.baumgarte / self.config.substeps as f32) / delta_time;
+        let baumgarte_factor = if apply_baumgarte { (self.config.baumgarte / self.config.substeps as f32) / delta_time } else { 0.0 };
 
         let relative_displacement = Self::relative_displacement(joint, world);
         let relative_angle = Vec2::angle_between(Vec2::from_angle(objects[0].transform.rotation), Vec2::from_angle(objects[1].transform.rotation));
@@ -237,7 +237,7 @@ impl SequentialImpulse {
             zeta: -baumgarte_factor * relative_displacement.y
         });
 
-        if true {
+        if false {
             solver.add_constraint(BlockConstraint {
                 j: [
                     Screw { linear: Vec2::ZERO, angular: -1.0 },
@@ -249,6 +249,7 @@ impl SequentialImpulse {
         }
 
         let impulses = solver.solve();
+        
         Self::apply_impulse(constraint, world, impulses);
     }
 
@@ -624,10 +625,9 @@ impl BlockSolver {
         let cholesky = Cholesky::new(k).expect("cholesky decomp failed");
         let mut lambda = cholesky.solve(&rhs);
 
-        lambda[2] = 0.0;
-        //for i in 0..C {
-        //    lambda[i] = lambda[i].clamp(self.lambda_min[i], self.lambda_max[i]);
-        //}
+        for i in 0..C {
+            lambda[i] = lambda[i].clamp(self.lambda_min[i], self.lambda_max[i]);
+        }
         
         let impulses = j.transpose() * lambda;
 
