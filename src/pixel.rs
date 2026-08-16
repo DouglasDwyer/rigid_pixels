@@ -69,15 +69,10 @@ impl PixelWorld {
         let id = JointId(self.joints.iter().fold(0, |acc, x| acc.max(x.id.0)) + 1);
         
         self.joints.push(Joint {
+            descriptor,
             objects,
             id,
             local_transform: objects.map(|id| self.objects[id].transform.inverse() * point),
-            max_force: descriptor.max_force,
-            max_torque: descriptor.max_torque,
-            translation_max: descriptor.translation_max,
-            translation_min: descriptor.translation_min,
-            rotation_max: descriptor.rotation_max,
-            rotation_min: descriptor.rotation_min
         });
     }
 

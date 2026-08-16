@@ -199,65 +199,68 @@ impl Contact {
 /// A persistent constraint that limits the motion between a point on two bodies.
 #[derive(Clone, Debug)]
 pub struct Joint {
+    /// The maximum amount of force that this joint may exert.
+    pub descriptor: JointDescriptor,
     /// The objects that are constrained.
     pub objects: [ObjectId; 2],
     /// The ID of the joint.
     pub id: JointId,
     /// The location of the joint in each object's local coordinate system.
     pub local_transform: [Transform; 2],
-    /// The maximum amount of force that this joint may exert.
-    pub max_force: f32,
-    /// The maximum amount of torque that this joint may exert.
-    pub max_torque: f32,
-    /// The minimum allowed translation along the joint axes.
-    pub translation_min: Vec2,
-    /// The maximum allowed translation along the joint axes.
-    pub translation_max: Vec2,
-    /// The minimum allowed rotation along the joint axes.
-    pub rotation_min: f32,
-    /// The maximum allowed rotation along the joint axes.
-    pub rotation_max: f32
+}
+
+#[derive(Clone, Debug)]
+pub enum JointDimensions {
+    D1,
+    D2
+}
+
+/// Defines the local properties of a [`Joint`].
+#[derive(Clone, Debug)]
+pub struct JointSubspace {
+    pub dimension: JointDimensions,
+    pub limits: RangeInclusive<f32>
+}
+
+impl JointSubspace {
+    pub const FIXED: Self = Self {
+        limits: 0.0..=0.0,
+        ..Self::FREE
+    };
+
+    pub const FREE: Self = Self {
+        dimension: JointDimensions::D2,
+        limits: -f32::NEG_INFINITY..=f32::INFINITY
+    };
+}
+
+impl Default for JointSubspace {
+    fn default() -> Self {
+        Self::FREE
+    }
 }
 
 /// Defines the local properties of a [`Joint`].
 #[derive(Clone, Debug)]
 pub struct JointDescriptor {
-    /// The maximum amount of force that this joint may exert.
-    max_force: f32,
-    /// The maximum amount of torque that this joint may exert.
-    max_torque: f32,
-    /// The maximum allowed translation along the joint axes.
-    translation_max: Vec2,
-    /// The minimum allowed translation along the joint axes.
-    translation_min: Vec2,
-    /// The maximum allowed rotation along the joint axes.
-    rotation_max: f32,
-    /// The minimum allowed rotation along the joint axes.
-    rotation_min: f32
+    angular_subspace: JointSubspace,
+    linear_subspace: JointSubspace,
 }
 
 impl JointDescriptor {
     /// Allow no forms of motion.
     pub fn fixed() -> Self {
         Self {
-            max_force: f32::MAX,
-            max_torque: f32::MAX,
-            translation_max: Vec2::ZERO,
-            translation_min: Vec2::ZERO,
-            rotation_max: 0.0,
-            rotation_min: 0.0
+            angular_subspace: JointSubspace::FIXED,
+            linear_subspace: JointSubspace::FIXED,
         }
     }
 
     /// Allow all forms of motion.
     pub fn free() -> Self {
         Self {
-            max_force: f32::MAX,
-            max_torque: f32::MAX,
-            translation_max: Vec2::MAX,
-            translation_min: Vec2::MIN,
-            rotation_max: f32::MAX,
-            rotation_min: f32::MIN
+            angular_subspace: JointSubspace::FREE,
+            linear_subspace: JointSubspace::FREE,
         }
     }
 
@@ -265,8 +268,7 @@ impl JointDescriptor {
     /// Allow rotation around one axis.
     pub fn hinge() -> Self {
         Self {
-            translation_min: Vec2::ZERO,
-            translation_max: Vec2::ZERO,
+            linear_subspace: JointSubspace::FIXED,
             ..Self::free()
         }
     }
@@ -274,40 +276,23 @@ impl JointDescriptor {
     /// Prevent translation along one axis.
     /// Prevent rotation around one axis.
     pub fn slider(range: RangeInclusive<f32>) -> Self {
+        /*
         Self {
             rotation_max: 0.0,
             rotation_min: 0.0,
             translation_max: vec2(*range.end(), 0.0),
             translation_min: vec2(*range.start(), 0.0),
             ..Self::free()
-        }
+        } */
+       todo!()
     }
 
     /// Allow translation along both axes.
     /// Prevent rotation around one axis.
     pub fn rotational() -> Self {
         Self {
-            rotation_min: 0.0,
-            rotation_max: 0.0,
+            angular_subspace: JointSubspace::FIXED,
             ..Self::free()
-        }
-    }
-
-    /// Specifies the maximum force magnitude that this joint exerts
-    /// to satisfy positional constraints.
-    pub fn max_force(self, value: f32) -> Self {
-        Self {
-            max_force: value,
-            ..self
-        }
-    }
-
-    /// Specifies the maximum torque magnitude that this joint exerts
-    /// to satisfy rotational constraints.
-    pub fn max_torque(self, value: f32) -> Self {
-        Self {
-            max_torque: value,
-            ..self
         }
     }
 }

@@ -75,12 +75,13 @@ impl Renderer {
 
         for (index, direction) in [Vec2::X, Vec2::Y].into_iter().enumerate() {
             let screen_direction = screen_world_matrix.transform_vector2(basis_to_world * direction);
-            if f32::MIN < joint.translation_min[index] {
-                let minimum_displacement = joint.translation_min[index] * screen_direction;
+            let linear_limits = joint.descriptor.linear_subspace.limits.clone();
+            if f32::MIN < *linear_limits.start() {
+                let minimum_displacement = *linear_limits.start() * screen_direction;
                 draw_line(center_pixels.x, center_pixels.y, center_pixels.x + minimum_displacement.x, center_pixels.y + minimum_displacement.y, 1.0, WHITE);
             }
-            if joint.translation_max[index] < f32::MAX {
-                let maximum_displacement = joint.translation_max[index] * screen_direction;
+            if *linear_limits.end() < f32::MAX {
+                let maximum_displacement = *linear_limits.end() * screen_direction;
                 draw_line(center_pixels.x, center_pixels.y, center_pixels.x + maximum_displacement.x, center_pixels.y + maximum_displacement.y, 1.0, WHITE);
             }
         }

@@ -219,31 +219,44 @@ impl SequentialImpulse {
             objects[1].transform * joint.local_transform[1].position - objects[1].transform.position
         ];
 
-        solver.add_constraint(BlockConstraint {
-            j: [
-                Screw { linear: Vec2::NEG_X, angular: relative_offsets[0].y },
-                Screw { linear: Vec2::X, angular: -relative_offsets[1].y }
-            ],
-            lambda_limits: -f32::INFINITY..=f32::INFINITY,
-            zeta: -baumgarte_factor * relative_displacement.x
-        });
-        
-        solver.add_constraint(BlockConstraint {
-            j: [
-                Screw { linear: Vec2::NEG_Y, angular: -relative_offsets[0].x },
-                Screw { linear: Vec2::Y, angular: relative_offsets[1].x }
-            ],
-            lambda_limits: -f32::INFINITY..=f32::INFINITY,
-            zeta: -baumgarte_factor * relative_displacement.y
-        });
+        match joint.descriptor.linear_subspace.dimension {
+            JointDimensions::D1 => {
+                todo!()
+            }
+            JointDimensions::D2 => {
+                if *joint.descriptor.linear_subspace.limits.end() <= 0.0 {
+                    solver.add_constraint(BlockConstraint {
+                        j: [
+                            Screw { linear: Vec2::NEG_X, angular: relative_offsets[0].y },
+                            Screw { linear: Vec2::X, angular: -relative_offsets[1].y }
+                        ],
+                        lambda_limits: -f32::INFINITY..=f32::INFINITY,
+                        zeta: -baumgarte_factor * relative_displacement.x
+                    });
+                    
+                    solver.add_constraint(BlockConstraint {
+                        j: [
+                            Screw { linear: Vec2::NEG_Y, angular: -relative_offsets[0].x },
+                            Screw { linear: Vec2::Y, angular: relative_offsets[1].x }
+                        ],
+                        lambda_limits: -f32::INFINITY..=f32::INFINITY,
+                        zeta: -baumgarte_factor * relative_displacement.y
+                    });
+                }
+                else {
+                    todo!()
+                }
+            }
+        }
 
-        if false {
+
+        if joint.descriptor.angular_subspace.limits.clone() == (0.0..=0.0) {
             solver.add_constraint(BlockConstraint {
                 j: [
                     Screw { linear: Vec2::ZERO, angular: -1.0 },
                     Screw { linear: Vec2::ZERO, angular: 1.0 }
                 ],
-                lambda_limits: -0.0..=0.0,
+                lambda_limits: -f32::INFINITY..=f32::INFINITY,
                 zeta: -baumgarte_factor * relative_angle
             });
         }
@@ -541,6 +554,15 @@ struct BlockConstraint {
     zeta: f32
 }
 
+/// The state of a single row of a box-constrained LCP solve: either free (its equation
+/// holds exactly), or clamped to one of its bounds.
+#[derive(Clone, Copy, PartialEq)]
+enum RowState {
+    Free,
+    Lo,
+    Hi
+}
+
 struct BlockSolver {
     lambda_max: Vector3<f32>,
     lambda_min: Vector3<f32>,
@@ -611,30 +633,153 @@ impl BlockSolver {
     fn solve_cols<const C: usize>(&self, m_inv: Matrix6<f32>) -> [Screw; 2] {
         // Solve for λ:
         // JM⁻¹Jᵀλ = ζ - JV
+        // subject to lambda_min <= λ <= lambda_max, via exact LCP case analysis.
 
         let j = self.j_t.fixed_columns::<C>(0).into_owned().transpose();
         let v = self.v;
         let zeta = self.zeta.fixed_rows::<C>(0).into_owned();
 
-        let lambda_max = self.lambda_max.fixed_rows::<C>(0).into_owned();
-        let lambda_min = self.lambda_min.fixed_rows::<C>(0).into_owned();
+        let lo = self.lambda_min.fixed_rows::<C>(0).into_owned();
+        let hi = self.lambda_max.fixed_rows::<C>(0).into_owned();
 
         let k = j * m_inv * j.transpose();
         let rhs = zeta - j * v;
 
-        let cholesky = Cholesky::new(k).expect("cholesky decomp failed");
-        let mut lambda = cholesky.solve(&rhs);
+        let lambda = Self::solve_lcp(&k, &rhs, &lo, &hi);
 
-        for i in 0..C {
-            lambda[i] = lambda[i].clamp(self.lambda_min[i], self.lambda_max[i]);
-        }
-        
         let impulses = j.transpose() * lambda;
 
         [
             Screw { linear: vec2(impulses[0], impulses[1]), angular: impulses[2] },
             Screw { linear: vec2(impulses[3], impulses[4]), angular: impulses[5] },
         ]
+    }
+
+    /// Exactly solves the box-constrained LCP `Kλ = rhs` s.t. `lo <= λ <= hi` via active-set
+    /// case analysis (`K` must be symmetric positive definite, which `J M⁻¹ Jᵀ` always is for
+    /// independent constraint rows). Tries the fully free solution first, then only the
+    /// specific bound each row's unconstrained value actually violates, and falls back to a
+    /// full enumeration as a safety net for strongly-coupled rows where that guess is wrong.
+    fn solve_lcp<const C: usize>(
+        k: &SMatrix<f32, C, C>,
+        rhs: &SVector<f32, C>,
+        lo: &SVector<f32, C>,
+        hi: &SVector<f32, C>,
+    ) -> SVector<f32, C> {
+        let free_states = [RowState::Free; C];
+        if let Some(lambda) = Self::solve_candidate(k, rhs, lo, hi, &free_states) {
+            return lambda;
+        }
+
+        let unconstrained = Cholesky::new_unchecked(*k).solve(rhs);
+        let guided_bound: [Option<RowState>; C] = std::array::from_fn(|i| {
+            if unconstrained[i] < lo[i] { Some(RowState::Lo) }
+            else if unconstrained[i] > hi[i] { Some(RowState::Hi) }
+            else { None }
+        });
+
+        // Only try clamping rows to the bound they actually indicated they wanted to
+        // violate -- never the opposite bound, which is never optimal for a convex problem.
+        for mask in 1..(1u32 << C) {
+            let mut states = [RowState::Free; C];
+            let mut skip = false;
+
+            for i in 0..C {
+                if mask & (1 << i) != 0 {
+                    match guided_bound[i] {
+                        Some(state) => states[i] = state,
+                        None => { skip = true; break; }
+                    }
+                }
+            }
+
+            if !skip {
+                if let Some(lambda) = Self::solve_candidate(k, rhs, lo, hi, &states) {
+                    return lambda;
+                }
+            }
+        }
+
+        // Rare fallback: strong coupling flipped a row to a bound the initial unconstrained
+        // guess didn't indicate. Enumerate every possible active set (at most 27 for C=3).
+        for combo in 0..3u32.pow(C as u32) {
+            let mut states = [RowState::Free; C];
+            let mut n = combo;
+            for i in 0..C {
+                states[i] = match n % 3 {
+                    0 => RowState::Free,
+                    1 => RowState::Lo,
+                    _ => RowState::Hi
+                };
+                n /= 3;
+            }
+
+            if let Some(lambda) = Self::solve_candidate(k, rhs, lo, hi, &states) {
+                return lambda;
+            }
+        }
+
+        // Should be unreachable for a well-posed (positive definite) system; never panic.
+        SVector::<f32, C>::from_fn(|i, _| unconstrained[i].clamp(lo[i], hi[i]))
+    }
+
+    /// Solves for `λ` under a proposed active set (which rows are free vs. clamped to a
+    /// bound) and validates the result: free rows must land within their bounds, and clamped
+    /// rows must have a residual with the sign that makes clamping there actually optimal.
+    /// Returns `None` if this active set isn't the correct one.
+    fn solve_candidate<const C: usize>(
+        k: &SMatrix<f32, C, C>,
+        rhs: &SVector<f32, C>,
+        lo: &SVector<f32, C>,
+        hi: &SVector<f32, C>,
+        states: &[RowState; C],
+    ) -> Option<SVector<f32, C>> {
+        const EPS: f32 = 1e-4;
+
+        let mut k_mod = *k;
+        let mut rhs_mod = *rhs;
+
+        for i in 0..C {
+            let fixed = match states[i] {
+                RowState::Free => None,
+                RowState::Lo => Some(lo[i]),
+                RowState::Hi => Some(hi[i])
+            };
+
+            if let Some(value) = fixed {
+                for col in 0..C {
+                    k_mod[(i, col)] = if col == i { 1.0 } else { 0.0 };
+                }
+                rhs_mod[i] = value;
+            }
+        }
+
+        let lambda = Self::solve_linear(&k, &rhs_mod)?;
+        let w = k * lambda - rhs;
+
+        for i in 0..C {
+            let valid = match states[i] {
+                RowState::Free => lambda[i] >= lo[i] - EPS && lambda[i] <= hi[i] + EPS,
+                RowState::Lo => w[i] >= -EPS,
+                RowState::Hi => w[i] <= EPS
+            };
+
+            if !valid {
+                return None;
+            }
+        }
+
+        Some(lambda)
+    }
+
+    /// Work around `nalgebra`'s traits being a hairy mess
+    fn solve_linear<const C: usize>(a: &SMatrix<f32, C, C>, b: &SVector<f32, C>) -> Option<SVector<f32, C>> {
+        Some(match C {
+            1 => a.fixed_resize::<1, 1>(0.0).lu().solve(&b.fixed_resize::<1, 1>(0.0))?.fixed_resize::<C, 1>(0.0),
+            2 => a.fixed_resize::<2, 2>(0.0).lu().solve(&b.fixed_resize::<2, 1>(0.0))?.fixed_resize::<C, 1>(0.0),
+            3 => a.fixed_resize::<3, 3>(0.0).lu().solve(&b.fixed_resize::<3, 1>(0.0))?.fixed_resize::<C, 1>(0.0),
+            _ => unreachable!()
+        })
     }
 }
 
