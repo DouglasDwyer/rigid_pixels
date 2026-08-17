@@ -275,16 +275,15 @@ impl JointDescriptor {
     
     /// Prevent translation along one axis.
     /// Prevent rotation around one axis.
-    pub fn slider(range: RangeInclusive<f32>) -> Self {
-        /*
+    pub fn slider(limits: RangeInclusive<f32>) -> Self {
         Self {
-            rotation_max: 0.0,
-            rotation_min: 0.0,
-            translation_max: vec2(*range.end(), 0.0),
-            translation_min: vec2(*range.start(), 0.0),
-            ..Self::free()
-        } */
-       todo!()
+            angular_subspace: JointSubspace::FIXED,
+            linear_subspace: JointSubspace {
+                dimension: JointDimensions::D1,
+                limits,
+                ..Default::default()
+            },
+        }
     }
 
     /// Allow translation along both axes.

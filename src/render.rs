@@ -73,17 +73,17 @@ impl Renderer {
         let mut basis_to_world = object.transform * transform;
         basis_to_world.position = Vec2::ZERO;
 
-        for (index, direction) in [Vec2::X, Vec2::Y].into_iter().enumerate() {
-            let screen_direction = screen_world_matrix.transform_vector2(basis_to_world * direction);
-            let linear_limits = joint.descriptor.linear_subspace.limits.clone();
-            if f32::MIN < *linear_limits.start() {
-                let minimum_displacement = *linear_limits.start() * screen_direction;
-                draw_line(center_pixels.x, center_pixels.y, center_pixels.x + minimum_displacement.x, center_pixels.y + minimum_displacement.y, 1.0, WHITE);
-            }
-            if *linear_limits.end() < f32::MAX {
-                let maximum_displacement = *linear_limits.end() * screen_direction;
-                draw_line(center_pixels.x, center_pixels.y, center_pixels.x + maximum_displacement.x, center_pixels.y + maximum_displacement.y, 1.0, WHITE);
-            }
+        let screen_direction = screen_world_matrix.transform_vector2(basis_to_world * Vec2::X);
+        let linear_limits = joint.descriptor.linear_subspace.limits.clone();
+        let linear_limits = linear_limits.start().max(-10000.0)..=linear_limits.end().min(10000.0);
+        
+        if f32::MIN < *linear_limits.start() {
+            let minimum_displacement = *linear_limits.start() * screen_direction;
+            draw_line(center_pixels.x, center_pixels.y, center_pixels.x + minimum_displacement.x, center_pixels.y + minimum_displacement.y, 1.0, WHITE);
+        }
+        if *linear_limits.end() < f32::MAX {
+            let maximum_displacement = *linear_limits.end() * screen_direction;
+            draw_line(center_pixels.x, center_pixels.y, center_pixels.x + maximum_displacement.x, center_pixels.y + maximum_displacement.y, 1.0, WHITE);
         }
     }
 

@@ -221,7 +221,16 @@ impl SequentialImpulse {
 
         match joint.descriptor.linear_subspace.dimension {
             JointDimensions::D1 => {
-                todo!()
+                let t_perp = Vec2::from_angle(objects[0].transform.rotation + joint.local_transform[0].rotation).rotate(Vec2::Y);
+
+                solver.add_constraint(BlockConstraint {
+                    j: [
+                        Screw { linear: -t_perp, angular: -relative_offsets[0].perp_dot(t_perp) },
+                        Screw { linear: t_perp, angular: (relative_offsets[1] - relative_displacement).perp_dot(t_perp) }
+                    ],
+                    lambda_limits: -f32::INFINITY..=f32::INFINITY,
+                    zeta: -baumgarte_factor * relative_displacement.dot(t_perp)
+                });
             }
             JointDimensions::D2 => {
                 if *joint.descriptor.linear_subspace.limits.end() <= 0.0 {
