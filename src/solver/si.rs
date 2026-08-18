@@ -221,6 +221,8 @@ impl SequentialImpulse {
             objects[1].transform * joint.local_transform[1].position - objects[1].transform.position
         ];
 
+        let linear_spring = joint.descriptor.linear_subspace.spring;
+
         match joint.descriptor.linear_subspace.dimension {
             JointDimensions::D1 => {
                 let rotation = Vec2::from_angle(0.5 * (objects[0].transform.rotation + joint.local_transform[0].rotation
@@ -231,7 +233,8 @@ impl SequentialImpulse {
                 let parallel_err = relative_displacement.dot(t_par);
                 let perp_err = relative_displacement.dot(t_perp);
 
-                solver.add_constraint(BlockConstraint {
+                solver.add_constraint(BlockConstraint { 
+                    gamma_per_mass: 0.0,
                     j: [
                         Screw { linear: -t_perp, angular: -relative_offsets[0].perp_dot(t_perp) - 0.5 * parallel_err },
                         Screw { linear: t_perp, angular: relative_offsets[1].perp_dot(t_perp) - 0.5 * parallel_err }
@@ -241,28 +244,43 @@ impl SequentialImpulse {
                 });
 
                 if joint.descriptor.linear_subspace.limits.start() == joint.descriptor.linear_subspace.limits.end() {
-                    solver.add_constraint(BlockConstraint {
-                        j: [
-                            Screw { linear: -t_par, angular: -relative_offsets[0].perp_dot(t_par) + 0.5 * perp_err },
-                            Screw { linear: t_par, angular: relative_offsets[1].perp_dot(t_par) + 0.5 * perp_err }
-                        ],
-                        lambda_limits: f32::NEG_INFINITY..=f32::INFINITY,
-                        zeta: -baumgarte_factor * Self::double_slop(parallel_err, Self::LINEAR_SLOP)
-                    });
+                    if linear_spring == SpringConstants::RIGID {
+                        solver.add_constraint(BlockConstraint {    
+                            gamma_per_mass: 0.0,
+                            j: [
+                                Screw { linear: -t_par, angular: -relative_offsets[0].perp_dot(t_par) + 0.5 * perp_err },
+                                Screw { linear: t_par, angular: relative_offsets[1].perp_dot(t_par) + 0.5 * perp_err }
+                            ],
+                            lambda_limits: f32::NEG_INFINITY..=f32::INFINITY,
+                            zeta: -baumgarte_factor * Self::double_slop(parallel_err, Self::LINEAR_SLOP)
+                        });
+                    }
+                    else {
+                        let (gamma_per_mass, zeta) = linear_spring.gamma_zeta(parallel_err, delta_time);
+                        solver.add_constraint(BlockConstraint {
+                            gamma_per_mass,
+                            j: [
+                                Screw { linear: -t_par, angular: -relative_offsets[0].perp_dot(t_par) + 0.5 * perp_err },
+                                Screw { linear: t_par, angular: relative_offsets[1].perp_dot(t_par) + 0.5 * perp_err }
+                            ],
+                            lambda_limits: f32::NEG_INFINITY..=f32::INFINITY,
+                            zeta
+                        });
+                    }
                 }
-                else {
+                else if linear_spring == SpringConstants::RIGID {
                     let relative_velocity = constraint.relative_velocity(world).dot(t_par);
-                    let middle = 0.5 * (*joint.descriptor.linear_subspace.limits.end() + *joint.descriptor.linear_subspace.limits.start());
 
                     let parallel_errs = vec2(parallel_err - *joint.descriptor.linear_subspace.limits.start(), *joint.descriptor.linear_subspace.limits.end() - parallel_err);
                     let velocity_bounds = -parallel_errs / delta_time;
-                    let zetas = Vec2::select(parallel_errs.cmple(Vec2::ZERO), -baumgarte_factor * parallel_errs, velocity_bounds);
+                    let zetas = Vec2::select(parallel_errs.cmple(Vec2::ZERO), -baumgarte_factor * Self::double_slop_vec2(parallel_errs, Self::LINEAR_SLOP), velocity_bounds);
 
-                    let index = if parallel_err <= middle { 0 } else { 1 };
+                    let index = if parallel_errs.x <= parallel_errs.y { 0 } else { 1 };
                     let sign = [1.0, -1.0][index];
 
                     if sign * relative_velocity < velocity_bounds[index] {
                         solver.add_constraint(BlockConstraint {
+                            gamma_per_mass: 0.0,
                             j: [
                                 sign * Screw { linear: -t_par, angular: -relative_offsets[0].perp_dot(t_par) + 0.5 * perp_err },
                                 sign * Screw { linear: t_par, angular: relative_offsets[1].perp_dot(t_par) + 0.5 * perp_err }
@@ -272,10 +290,38 @@ impl SequentialImpulse {
                         });
                     }
                 }
+                else {
+                    let relative_velocity = constraint.relative_velocity(world).dot(t_par);
+
+                    let parallel_errs = vec2(parallel_err - *joint.descriptor.linear_subspace.limits.start(), *joint.descriptor.linear_subspace.limits.end() - parallel_err);
+                    let velocity_bounds = -parallel_errs / delta_time;
+                    let zetas = -baumgarte_factor * Self::double_slop_vec2(parallel_errs, Self::LINEAR_SLOP);
+
+                    let index = if parallel_errs.x <= parallel_errs.y { 0 } else { 1 };
+                    let sign = [1.0, -1.0][index];
+
+                    let gamma_zetas = [
+                        linear_spring.gamma_zeta(parallel_errs.x, delta_time),
+                        linear_spring.gamma_zeta(parallel_errs.y, delta_time),
+                    ];
+
+                    if parallel_errs.cmple(Vec2::ZERO).any() {
+                        solver.add_constraint(BlockConstraint {
+                            gamma_per_mass: gamma_zetas[index].0,
+                            j: [
+                                sign * Screw { linear: -t_par, angular: -relative_offsets[0].perp_dot(t_par) + 0.5 * perp_err },
+                                sign * Screw { linear: t_par, angular: relative_offsets[1].perp_dot(t_par) + 0.5 * perp_err }
+                            ],
+                            lambda_limits: 0.0..=f32::INFINITY,
+                            zeta: gamma_zetas[index].1
+                        });
+                    }
+                }
             }
             JointDimensions::D2 => {
                 if *joint.descriptor.linear_subspace.limits.end() <= 0.0 {
                     solver.add_constraint(BlockConstraint {
+                        gamma_per_mass: 0.0,
                         j: [
                             Screw { linear: Vec2::NEG_X, angular: relative_offsets[0].y },
                             Screw { linear: Vec2::X, angular: -relative_offsets[1].y }
@@ -285,6 +331,7 @@ impl SequentialImpulse {
                     });
 
                     solver.add_constraint(BlockConstraint {
+                        gamma_per_mass: 0.0,
                         j: [
                             Screw { linear: Vec2::NEG_Y, angular: -relative_offsets[0].x },
                             Screw { linear: Vec2::Y, angular: relative_offsets[1].x }
@@ -302,6 +349,7 @@ impl SequentialImpulse {
 
         if joint.descriptor.angular_subspace.limits.clone() == (0.0..=0.0) {
             solver.add_constraint(BlockConstraint {
+                gamma_per_mass: 0.0,
                 j: [
                     Screw { linear: Vec2::ZERO, angular: -1.0 },
                     Screw { linear: Vec2::ZERO, angular: 1.0 }
@@ -482,6 +530,10 @@ impl SequentialImpulse {
             (x + slop).min(0.0)
         }
     }
+
+    fn double_slop_vec2(v: Vec2, slop: f32) -> Vec2 {
+        vec2(Self::double_slop(v.x, slop), Self::double_slop(v.y, slop))
+    }
 }
 
 /// Holds information about the force generated by a [`Contact`].
@@ -610,6 +662,7 @@ impl From<Joint> for ConstraintSource {
 
 #[derive(Clone, Debug)]
 struct BlockConstraint {
+    gamma_per_mass: f32,
     j: [Screw; 2],
     lambda_limits: RangeInclusive<f32>,
     zeta: f32
@@ -625,6 +678,7 @@ enum RowState {
 }
 
 struct BlockSolver {
+    gamma_per_mass: Vector3<f32>,
     lambda_max: Vector3<f32>,
     lambda_min: Vector3<f32>,
     len: usize,
@@ -637,6 +691,7 @@ struct BlockSolver {
 impl BlockSolver {
     pub fn new(v: [Screw; 2], m: [MassProperties; 2]) -> Self {
         Self {
+            gamma_per_mass: Vector3::zeros(),
             lambda_max: Vector3::zeros(),
             lambda_min: Vector3::zeros(),
             len: 0,
@@ -657,6 +712,7 @@ impl BlockSolver {
     pub fn add_constraint(&mut self, constraint: BlockConstraint) {
         assert!(self.len < 3);
 
+        self.gamma_per_mass[self.len] = constraint.gamma_per_mass;
         self.lambda_max[self.len] = *constraint.lambda_limits.end();
         self.lambda_min[self.len] = *constraint.lambda_limits.start();
         self.j_t.set_column(self.len, &Vector6::new(
@@ -691,6 +747,14 @@ impl BlockSolver {
         }
     }
 
+    fn soften_k<const C: usize>(mut k: SMatrix<f32, C, C>, gamma_per_mass: SVector<f32, C>) -> SMatrix<f32, C, C> {
+        for i in 0..C {
+            k[(i, i)] *= 1.0 + gamma_per_mass[i];
+        }
+
+        k
+    }
+
     fn solve_cols<const C: usize>(&self, m_inv: Matrix6<f32>) -> [Screw; 2] {
         // Solve for λ:
         // JM⁻¹Jᵀλ = ζ - JV
@@ -703,7 +767,7 @@ impl BlockSolver {
         let lo = self.lambda_min.fixed_rows::<C>(0).into_owned();
         let hi = self.lambda_max.fixed_rows::<C>(0).into_owned();
 
-        let k = j * m_inv * j.transpose();
+        let k = Self::soften_k(j * m_inv * j.transpose(), self.gamma_per_mass.fixed_rows::<C>(0).into_owned());
         let rhs = zeta - j * v;
 
         let lambda = Self::solve_lcp(&k, &rhs, &lo, &hi);

@@ -196,6 +196,40 @@ impl Contact {
     }
 }
 
+/// Describes a harmonic oscillator.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct SpringConstants {
+    /// The unitless damping ratio `ζ`.
+    pub damping: f32,
+    /// The frequency of oscillation `f` (in s⁻¹).
+    pub frequency: f32
+}
+
+impl SpringConstants {
+    /// An infinitely stiff spring.
+    pub const RIGID: Self = Self { damping: 1.0, frequency: f32::INFINITY };
+
+    pub fn angular_frequency(self) -> f32 {
+        std::f32::consts::TAU * self.frequency
+    }
+
+    fn gamma_zeta(self, c: f32, delta_time: f32) -> (f32, f32) {
+        let damping = self.damping;
+        let w = self.angular_frequency();
+
+        (
+            1.0 / (delta_time * w * (2.0 * damping + delta_time * w)),
+            -w / (2.0 * damping + delta_time * w) * c
+        )
+    }
+}
+
+impl Default for SpringConstants {
+    fn default() -> Self {
+        Self::RIGID
+    }
+}
+
 /// A persistent constraint that limits the motion between a point on two bodies.
 #[derive(Clone, Debug)]
 pub struct Joint {
@@ -219,7 +253,8 @@ pub enum JointDimensions {
 #[derive(Clone, Debug)]
 pub struct JointSubspace {
     pub dimension: JointDimensions,
-    pub limits: RangeInclusive<f32>
+    pub limits: RangeInclusive<f32>,
+    pub spring: SpringConstants
 }
 
 impl JointSubspace {
@@ -230,7 +265,8 @@ impl JointSubspace {
 
     pub const FREE: Self = Self {
         dimension: JointDimensions::D2,
-        limits: -f32::NEG_INFINITY..=f32::INFINITY
+        limits: -f32::NEG_INFINITY..=f32::INFINITY,
+        spring: SpringConstants::RIGID
     };
 }
 
@@ -292,6 +328,16 @@ impl JointDescriptor {
         Self {
             angular_subspace: JointSubspace::FIXED,
             ..Self::free()
+        }
+    }
+
+    pub fn with_linear_spring(self, spring: SpringConstants) -> Self {
+        Self {
+            linear_subspace: JointSubspace {
+                spring,
+                ..self.linear_subspace.clone()
+            },
+            ..self.clone()
         }
     }
 }
