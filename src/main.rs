@@ -340,9 +340,9 @@ async fn main() {
         detector: Detector::new(DetectorKind::Speculative { include_external_forces: true, mode: SpeculativeStepMode::Equidistant }, GeometryKind::Surface),
         solver: Solver::SequentialImpulse(SequentialImpulse::new(SolverConfig {
             baumgarte: 0.2,
-            relaxation_iterations: 1,
+            relaxation_iterations: 2,
             substeps: 4,
-            velocity_iterations: 1,
+            velocity_iterations: 2,
             warm_starting: true
         })),
         delta_time: 0.01

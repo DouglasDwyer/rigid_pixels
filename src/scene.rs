@@ -109,6 +109,8 @@ pub fn hinge_joint() -> PixelWorld {
     let g = world.objects.insert(create_floor1(ROUGH_SOFT));
     let a = world.objects.insert(create_box(GOLD, ROUGH_SOFT, Transform { position: vec2(15.25, 8.25), rotation: 0.0 }, uvec2(2, 3)));
     let b = world.objects.insert(create_box(GOLD, ROUGH_SOFT, Transform { position: vec2(15.25, 14.25), rotation: 0.0 }, uvec2(3, 4)));
+    //world.insert_joint([a, b], Transform::new(vec2(8.25, 15.25), 0.0), JointDescriptor::slider(0.0..=10.0));
+    world.insert_joint([g, b], Transform::new(vec2(8.25, 15.25), 0.0), JointDescriptor::slider(0.0..=10.0));
     world.insert_joint([b, a], Transform::new(vec2(8.25, 15.25), 0.0), JointDescriptor::slider(0.0..=10.0));
     //world.insert_joint([a, g], Transform::new(vec2(8.25, 15.25), 0.0), JointDescriptor::hinge().x_limits(0.0..=5.0));
     world

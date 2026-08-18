@@ -20,6 +20,8 @@ impl SequentialImpulse {
     /// Percentage by which to reduce velocity per second.
     const DAMPING: f32 = 0.95;
 
+    const ANGULAR_SLOP: f32 = 0.01;
+
     /// A small amount of error to maintain when solving contact constraints.
     /// This ensures that the collision detector consistently picks up on contacts
     /// even after they are initially solved.
@@ -45,7 +47,7 @@ impl SequentialImpulse {
     /// Solves all contacts and joints, then updates the position/velocity of every object in `world`.
     pub fn solve(&mut self, contacts: &[Contact], world: &mut PixelWorld, delta_time: f32) {
         self.events.clear();
-        
+
         let substep_time = delta_time / self.config.substeps as f32;
 
         let mut constraints = world.joints.iter().map(|x| Constraint::new(x.clone(), world, &self.force_cache, substep_time))
@@ -60,7 +62,7 @@ impl SequentialImpulse {
                 object.velocity.angular *= Self::DAMPING.powf(substep_time);
                 object.velocity.linear *= Self::DAMPING.powf(substep_time);
             }
-            
+
             for _ in 0..self.config.velocity_iterations {
                 for constraint in &mut constraints {
                     self.solve_velocity(constraint, world, substep_time, true);
@@ -144,7 +146,7 @@ impl SequentialImpulse {
             Self::apply_body_impulse(constraint, world, delta_impulse * contact.normal);
         }
     }
-    
+
     /// Solves a single velocity constraint, updating the total applied impulse and the velocity
     /// of the bodies in the `world`.
     fn solve_velocity(&self, constraint: &mut Constraint, world: &mut PixelWorld, delta_time: f32, apply_baumgarte: bool) {
@@ -162,7 +164,7 @@ impl SequentialImpulse {
         let impulse_per_velocity = velocity_per_impulse.inverse();
 
         let static_friction_impulse = constraint.impulses[1].linear - impulse_per_velocity * relative_velocity;
-        
+
         let normal_impulse = static_friction_impulse.dot(contact.normal);
         let planar_impulse = static_friction_impulse.reject_from_normalized(contact.normal);
         let planar_impulse_length = planar_impulse.length();
@@ -221,7 +223,9 @@ impl SequentialImpulse {
 
         match joint.descriptor.linear_subspace.dimension {
             JointDimensions::D1 => {
-                let t_perp = Vec2::from_angle(objects[0].transform.rotation + joint.local_transform[0].rotation).rotate(Vec2::Y);
+                let rotation = Vec2::from_angle(objects[0].transform.rotation + joint.local_transform[0].rotation);
+                let t_par = rotation.rotate(Vec2::X);
+                let t_perp = rotation.rotate(Vec2::Y);
 
                 solver.add_constraint(BlockConstraint {
                     j: [
@@ -229,8 +233,73 @@ impl SequentialImpulse {
                         Screw { linear: t_perp, angular: (relative_offsets[1] - relative_displacement).perp_dot(t_perp) }
                     ],
                     lambda_limits: -f32::INFINITY..=f32::INFINITY,
-                    zeta: -baumgarte_factor * relative_displacement.dot(t_perp)
+                    zeta: -baumgarte_factor * Self::double_slop(relative_displacement.dot(t_perp).clamp(-1.0, 1.0), Self::LINEAR_SLOP)
                 });
+
+                /*
+                Ignore this code - not done yet
+                let parallel_err = relative_displacement.dot(t_par);
+                let relative_velocity = constraint.relative_velocity(world).dot(t_par);
+
+                //let middle = 0.5 * (*joint.descriptor.linear_subspace.limits.end() + *joint.descriptor.linear_subspace.limits.start());
+
+                let close_velocity = (*joint.descriptor.linear_subspace.limits.start() - parallel_err) / delta_time;
+
+                //if true {
+                if parallel_err <= *joint.descriptor.linear_subspace.limits.start() {
+                    solver.add_constraint(BlockConstraint {
+                        j: [
+                            Screw { linear: -t_par, angular: -relative_offsets[0].perp_dot(t_par) },
+                            Screw { linear: t_par, angular: (relative_offsets[1] - relative_displacement).perp_dot(t_par) }
+                        ],
+                        lambda_limits: 0.0..=f32::INFINITY,
+                        zeta: -baumgarte_factor * (parallel_err - *joint.descriptor.linear_subspace.limits.start() + Self::LINEAR_SLOP).min(0.0)
+                    });
+                }
+                else if relative_velocity < close_velocity {
+                    println!("vaa");
+                    solver.add_constraint(BlockConstraint {
+                        j: [
+                            Screw { linear: -t_par, angular: -relative_offsets[0].perp_dot(t_par) },
+                            Screw { linear: t_par, angular: (relative_offsets[1] - relative_displacement).perp_dot(t_par) }
+                        ],
+                        lambda_limits: 0.0..=f32::INFINITY,
+                        zeta: close_velocity
+                    });
+                }
+
+                let m_err = (parallel_err - *joint.descriptor.linear_subspace.limits.start()).min(0.0).abs();//.max(parallel_err - *joint.descriptor.linear_subspace.limits.end());
+                if m_err >= 1.05 * Self::LINEAR_SLOP {
+                    println!("SHOT {m_err}");
+                }
+
+                if false {
+                //else if *joint.descriptor.linear_subspace.limits.end() <= parallel_err {
+                //else if middle <= parallel_err {
+                    let zeta = if *joint.descriptor.linear_subspace.limits.end() <= parallel_err {
+                        -baumgarte_factor * (parallel_err - *joint.descriptor.linear_subspace.limits.end() - Self::LINEAR_SLOP).max(0.0)
+                    }
+                    else {
+                        -(parallel_err - *joint.descriptor.linear_subspace.limits.end()) / delta_time
+                    };
+
+                    solver.add_constraint(BlockConstraint {
+                        j: [
+                            Screw { linear: -t_par, angular: -relative_offsets[0].perp_dot(t_par) },
+                            Screw { linear: t_par, angular: (relative_offsets[1] - relative_displacement).perp_dot(t_par) }
+                        ],
+                        lambda_limits: -f32::INFINITY..=0.0,
+                        zeta
+                    });
+                }
+                solver.add_constraint(BlockConstraint {
+                    j: [
+                        Screw { linear: -t_par, angular: -relative_offsets[0].perp_dot(t_par) },
+                        Screw { linear: t_par, angular: (relative_offsets[1] - relative_displacement).perp_dot(t_par) }
+                    ],
+                    lambda_limits: 0.0..=f32::INFINITY,
+                    zeta: 0.0,//-baumgarte_factor * relative_displacement.dot(t_perp)
+                }); */
             }
             JointDimensions::D2 => {
                 if *joint.descriptor.linear_subspace.limits.end() <= 0.0 {
@@ -242,7 +311,7 @@ impl SequentialImpulse {
                         lambda_limits: -f32::INFINITY..=f32::INFINITY,
                         zeta: -baumgarte_factor * relative_displacement.x
                     });
-                    
+
                     solver.add_constraint(BlockConstraint {
                         j: [
                             Screw { linear: Vec2::NEG_Y, angular: -relative_offsets[0].x },
@@ -266,12 +335,14 @@ impl SequentialImpulse {
                     Screw { linear: Vec2::ZERO, angular: 1.0 }
                 ],
                 lambda_limits: -f32::INFINITY..=f32::INFINITY,
-                zeta: -baumgarte_factor * relative_angle
+                zeta: -baumgarte_factor * Self::double_slop(relative_angle, Self::ANGULAR_SLOP)
             });
+
+            //println!("rel_ang {relative_angle:?} & z {:?} (gona appl {apply_baumgarte})", -baumgarte_factor * Self::double_slop(relative_angle, Self::ANGULAR_SLOP));
         }
 
         let impulses = solver.solve();
-        
+
         Self::apply_impulse(constraint, world, impulses);
     }
 
@@ -313,7 +384,7 @@ impl SequentialImpulse {
             }
         }
     }
-    
+
     /// Stores the total impulse from the substep.
     fn sum_total_impulse(&mut self, constraints: &mut [Constraint]) {
         for constraint in constraints {
@@ -361,16 +432,16 @@ impl SequentialImpulse {
                 linear: object.body.inverse_mass() * impulses[index].linear,
                 angular: object.body.inverse_inertia_tensor() * impulses[index].angular
             };
-                
+
             constraint.impulses[index] += impulses[index];
         }
     }
 
     /// Computes the bias velocity to use when solving a contact constraint.
-    /// 
+    ///
     /// For speculative contacts, the bias removes exactly enough velocity
     /// to eliminate any separation between the bodies.
-    /// 
+    ///
     /// For non-speculative contacts, the bias includes the Baumgarte coefficient and slop.
     fn contact_bias_velocity(&self, contact: &Contact, world: &PixelWorld, delta_time: f32, apply_baumgarte: bool) -> Vec2 {
         let separation = contact.separation(world);
@@ -380,7 +451,7 @@ impl SequentialImpulse {
             }
             else {
                 0.0
-            }            
+            }
         }
         else {
             separation / delta_time
@@ -405,7 +476,7 @@ impl SequentialImpulse {
     fn approx_zero(v: Vec2) -> bool {
         v.abs().max_element() < 1e-6
     }
-    
+
     /// Gets the displacement in world space between the two joint anchors.
     fn relative_displacement(joint: &Joint, world: &PixelWorld) -> Vec2 {
         let mut displacement = Vec2::ZERO;
@@ -429,6 +500,15 @@ impl SequentialImpulse {
         }
 
         result
+    }
+
+    fn double_slop(x: f32, slop: f32) -> f32 {
+        if 0.0 <= x {
+            (x - slop).max(0.0)
+        }
+        else {
+            (x + slop).min(0.0)
+        }
     }
 }
 
@@ -573,20 +653,20 @@ enum RowState {
 }
 
 struct BlockSolver {
-    lambda_max: Vector3<f32>,
-    lambda_min: Vector3<f32>,
+    lambda_max: Vector6<f32>,
+    lambda_min: Vector6<f32>,
     len: usize,
     j_t: Matrix6<f32>,
     m: [MassProperties; 2],
     v: Vector6<f32>,
-    zeta: Vector3<f32>
+    zeta: Vector6<f32>
 }
 
 impl BlockSolver {
     pub fn new(v: [Screw; 2], m: [MassProperties; 2]) -> Self {
         Self {
-            lambda_max: Vector3::zeros(),
-            lambda_min: Vector3::zeros(),
+            lambda_max: Vector6::zeros(),
+            lambda_min: Vector6::zeros(),
             len: 0,
             j_t: Matrix6::zeros(),
             m,
@@ -598,12 +678,12 @@ impl BlockSolver {
                 v[1].linear.y,
                 v[1].angular,
             ),
-            zeta: Vector3::zeros()
+            zeta: Vector6::zeros()
         }
     }
 
     pub fn add_constraint(&mut self, constraint: BlockConstraint) {
-        assert!(self.len < 3);
+        assert!(self.len < 6);
 
         self.lambda_max[self.len] = *constraint.lambda_limits.end();
         self.lambda_min[self.len] = *constraint.lambda_limits.start();
@@ -635,6 +715,8 @@ impl BlockSolver {
             1 => self.solve_cols::<1>(m_inv),
             2 => self.solve_cols::<2>(m_inv),
             3 => self.solve_cols::<3>(m_inv),
+            4 => self.solve_cols::<4>(m_inv),
+            5 => self.solve_cols::<5>(m_inv),
             _ => unreachable!()
         }
     }
@@ -787,6 +869,8 @@ impl BlockSolver {
             1 => a.fixed_resize::<1, 1>(0.0).lu().solve(&b.fixed_resize::<1, 1>(0.0))?.fixed_resize::<C, 1>(0.0),
             2 => a.fixed_resize::<2, 2>(0.0).lu().solve(&b.fixed_resize::<2, 1>(0.0))?.fixed_resize::<C, 1>(0.0),
             3 => a.fixed_resize::<3, 3>(0.0).lu().solve(&b.fixed_resize::<3, 1>(0.0))?.fixed_resize::<C, 1>(0.0),
+            4 => a.fixed_resize::<4, 4>(0.0).lu().solve(&b.fixed_resize::<4, 1>(0.0))?.fixed_resize::<C, 1>(0.0),
+            5 => a.fixed_resize::<5, 5>(0.0).lu().solve(&b.fixed_resize::<5, 1>(0.0))?.fixed_resize::<C, 1>(0.0),
             _ => unreachable!()
         })
     }
