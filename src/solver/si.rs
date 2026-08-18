@@ -223,17 +223,20 @@ impl SequentialImpulse {
 
         match joint.descriptor.linear_subspace.dimension {
             JointDimensions::D1 => {
-                let rotation = Vec2::from_angle(objects[0].transform.rotation + joint.local_transform[0].rotation);
+                let rotation = Vec2::from_angle(0.5 * (objects[0].transform.rotation + joint.local_transform[0].rotation
+                    + objects[1].transform.rotation + joint.local_transform[1].rotation));
                 let t_par = rotation.rotate(Vec2::X);
                 let t_perp = rotation.rotate(Vec2::Y);
 
+                let parallel_err = relative_displacement.dot(t_par);
+
                 solver.add_constraint(BlockConstraint {
                     j: [
-                        Screw { linear: -t_perp, angular: -(relative_offsets[0] + relative_displacement).perp_dot(t_perp) },
-                        Screw { linear: t_perp, angular: relative_offsets[1].perp_dot(t_perp) }
+                        Screw { linear: -t_perp, angular: -relative_offsets[0].perp_dot(t_perp) - 0.5 * parallel_err },
+                        Screw { linear: t_perp, angular: relative_offsets[1].perp_dot(t_perp) - 0.5 * parallel_err }
                     ],
                     lambda_limits: -f32::INFINITY..=f32::INFINITY,
-                    zeta: -baumgarte_factor * relative_displacement.dot(t_perp) //Self::double_slop(relative_displacement.dot(t_perp), Self::LINEAR_SLOP)
+                    zeta: -baumgarte_factor * Self::double_slop(relative_displacement.dot(t_perp), Self::LINEAR_SLOP)
                 });
 
                 /*
@@ -335,7 +338,7 @@ impl SequentialImpulse {
                     Screw { linear: Vec2::ZERO, angular: 1.0 }
                 ],
                 lambda_limits: -f32::INFINITY..=f32::INFINITY,
-                zeta: -baumgarte_factor * relative_angle
+                zeta: -baumgarte_factor * Self::double_slop(relative_angle, Self::ANGULAR_SLOP)
             });
 
             //println!("rel_ang {relative_angle:?} & z {:?} (gona appl {apply_baumgarte})", -baumgarte_factor * Self::double_slop(relative_angle, Self::ANGULAR_SLOP));
