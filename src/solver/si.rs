@@ -243,7 +243,7 @@ impl SequentialImpulse {
                     zeta: -baumgarte_factor * Self::double_slop(perp_err, Self::LINEAR_SLOP)
                 });
 
-                if joint.descriptor.linear_subspace.limits.start() == joint.descriptor.linear_subspace.limits.end() {
+                if joint.descriptor.linear_subspace.limits.start == joint.descriptor.linear_subspace.limits.last {
                     if linear_spring == SpringConstants::RIGID {
                         solver.add_constraint(BlockConstraint {    
                             gamma_per_mass: 0.0,
@@ -271,7 +271,7 @@ impl SequentialImpulse {
                 else if linear_spring == SpringConstants::RIGID {
                     let relative_velocity = constraint.relative_velocity(world).dot(t_par);
 
-                    let parallel_errs = vec2(parallel_err - *joint.descriptor.linear_subspace.limits.start(), *joint.descriptor.linear_subspace.limits.end() - parallel_err);
+                    let parallel_errs = vec2(parallel_err - joint.descriptor.linear_subspace.limits.start, joint.descriptor.linear_subspace.limits.last - parallel_err);
                     let velocity_bounds = -parallel_errs / delta_time;
                     let zetas = Vec2::select(parallel_errs.cmple(Vec2::ZERO), -baumgarte_factor * Self::double_slop_vec2(parallel_errs, Self::LINEAR_SLOP), velocity_bounds);
 
@@ -291,11 +291,7 @@ impl SequentialImpulse {
                     }
                 }
                 else {
-                    let relative_velocity = constraint.relative_velocity(world).dot(t_par);
-
-                    let parallel_errs = vec2(parallel_err - *joint.descriptor.linear_subspace.limits.start(), *joint.descriptor.linear_subspace.limits.end() - parallel_err);
-                    let velocity_bounds = -parallel_errs / delta_time;
-                    let zetas = -baumgarte_factor * Self::double_slop_vec2(parallel_errs, Self::LINEAR_SLOP);
+                    let parallel_errs = vec2(parallel_err - joint.descriptor.linear_subspace.limits.start, joint.descriptor.linear_subspace.limits.last - parallel_err);
 
                     let index = if parallel_errs.x <= parallel_errs.y { 0 } else { 1 };
                     let sign = [1.0, -1.0][index];
@@ -319,7 +315,7 @@ impl SequentialImpulse {
                 }
             }
             JointDimensions::D2 => {
-                if *joint.descriptor.linear_subspace.limits.end() <= 0.0 {
+                if joint.descriptor.linear_subspace.limits.last <= 0.0 {
                     solver.add_constraint(BlockConstraint {
                         gamma_per_mass: 0.0,
                         j: [
@@ -713,8 +709,8 @@ impl BlockSolver {
         assert!(self.len < 3);
 
         self.gamma_per_mass[self.len] = constraint.gamma_per_mass;
-        self.lambda_max[self.len] = *constraint.lambda_limits.end();
-        self.lambda_min[self.len] = *constraint.lambda_limits.start();
+        self.lambda_max[self.len] = constraint.lambda_limits.last;
+        self.lambda_min[self.len] = constraint.lambda_limits.start;
         self.j_t.set_column(self.len, &Vector6::new(
             constraint.j[0].linear.x,
             constraint.j[0].linear.y,

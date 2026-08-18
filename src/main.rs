@@ -1,5 +1,6 @@
 #![allow(unused)]
 
+#![feature(new_range)]
 #![feature(vec_from_fn)]
 
 use egui_macroquad::egui;
@@ -16,7 +17,7 @@ use self::render::*;
 use self::render::Camera;
 use self::solver::*;
 use slotmap::*;
-use std::ops::*;
+use std::range::*;
 
 /// Implements logic for detecting collisions between objects.
 mod detector;
@@ -243,14 +244,14 @@ pub struct Joint {
     pub local_transform: [Transform; 2],
 }
 
-#[derive(Clone, Debug)]
+#[derive(Copy, Clone, Debug)]
 pub enum JointDimensions {
     D1,
     D2
 }
 
 /// Defines the local properties of a [`Joint`].
-#[derive(Clone, Debug)]
+#[derive(Copy, Clone, Debug)]
 pub struct JointSubspace {
     pub dimension: JointDimensions,
     pub limits: RangeInclusive<f32>,
@@ -277,7 +278,7 @@ impl Default for JointSubspace {
 }
 
 /// Defines the local properties of a [`Joint`].
-#[derive(Clone, Debug)]
+#[derive(Copy, Clone, Debug)]
 pub struct JointDescriptor {
     angular_subspace: JointSubspace,
     linear_subspace: JointSubspace,
@@ -337,7 +338,7 @@ impl JointDescriptor {
                 spring,
                 ..self.linear_subspace.clone()
             },
-            ..self.clone()
+            ..self
         }
     }
 }

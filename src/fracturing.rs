@@ -316,10 +316,10 @@ fn noise_2d(p: Vec2) -> Vec2 {
 
 /// Returns an iterator over all points in the box between `start` and `end`, inclusive.
 fn iter_grid_inclusive_i32(start: IVec2, end: IVec2) -> impl Iterator<Item = IVec2> {
-    (start.y..=end.y).flat_map(move |y| (start.x..=end.x).map(move |x| ivec2(x, y)))
+    (start.y..=end.y).into_iter().flat_map(move |y| (start.x..=end.x).into_iter().map(move |x| ivec2(x, y)))
 }
 
 /// Returns an iterator over all points in the box between `start` and `end`, exclusive.
 fn iter_grid_u32(start: UVec2, end: UVec2) -> impl Iterator<Item = UVec2> {
-    (start.y..end.y).flat_map(move |y| (start.x..end.x).map(move |x| uvec2(x, y)))
+    (start.y..end.y).into_iter().flat_map(move |y| (start.x..end.x).into_iter().map(move |x| uvec2(x, y)))
 }

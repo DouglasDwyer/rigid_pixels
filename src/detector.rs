@@ -302,7 +302,7 @@ impl SpeculativeStepMode {
 
         if *self == Self::Equidistant {
             let t_substep = delta_time / (required_steps + 1) as f32;
-            (1..=required_steps).map(|i| (i as f32) * t_substep).collect()
+            (1..=required_steps).into_iter().map(|i| (i as f32) * t_substep).collect()
         }
         else {
             let t_end = (delta_time - t_max * (required_steps - 1) as f32).max(0.0);
@@ -313,7 +313,7 @@ impl SpeculativeStepMode {
                 Self::Equidistant => unreachable!()
             };
 
-            (0..required_steps).map(|i| (i as f32) * t_max + t_offset).collect()
+            (0..required_steps).into_iter().map(|i| (i as f32) * t_max + t_offset).collect()
         }
     }
 }

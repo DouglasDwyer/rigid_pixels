@@ -74,15 +74,15 @@ impl Renderer {
         basis_to_world.position = Vec2::ZERO;
 
         let screen_direction = screen_world_matrix.transform_vector2(basis_to_world * Vec2::X);
-        let linear_limits = joint.descriptor.linear_subspace.limits.clone();
-        let linear_limits = linear_limits.start().max(-10000.0)..=linear_limits.end().min(10000.0);
+        let linear_limits = joint.descriptor.linear_subspace.limits;
+        let linear_limits = linear_limits.start.max(-10000.0)..=linear_limits.last.min(10000.0);
         
-        if f32::MIN < *linear_limits.start() {
-            let minimum_displacement = *linear_limits.start() * screen_direction;
+        if f32::MIN < linear_limits.start {
+            let minimum_displacement = linear_limits.start * screen_direction;
             draw_line(center_pixels.x, center_pixels.y, center_pixels.x + minimum_displacement.x, center_pixels.y + minimum_displacement.y, 1.0, WHITE);
         }
-        if *linear_limits.end() < f32::MAX {
-            let maximum_displacement = *linear_limits.end() * screen_direction;
+        if linear_limits.last < f32::MAX {
+            let maximum_displacement = linear_limits.last * screen_direction;
             draw_line(center_pixels.x, center_pixels.y, center_pixels.x + maximum_displacement.x, center_pixels.y + maximum_displacement.y, 1.0, WHITE);
         }
     }
