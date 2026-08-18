@@ -250,12 +250,31 @@ pub enum JointDimensions {
     D2
 }
 
+/// An active force _or_ torque that a constraint should apply.
+#[derive(Copy, Clone, Debug, Default, PartialEq)]
+pub struct Motor {
+    /// The maximum force _or_ torque that the motor may apply.
+    pub max_force_or_torque: f32,
+    /// The motor will attempt to reach this velocity while within the limits.
+    /// A maximum of [`Self::max_force_or_torque`] will be applied,
+    /// always in the direction of displacement error between the anchors.
+    pub velocity: f32,
+}
+
+impl Motor {
+    pub const NONE: Self = Self {
+        max_force_or_torque: 0.0,
+        velocity: 0.0
+    };
+}
+
 /// Defines the local properties of a [`Joint`].
 #[derive(Copy, Clone, Debug)]
 pub struct JointSubspace {
     pub dimension: JointDimensions,
     pub limits: RangeInclusive<f32>,
-    pub spring: SpringConstants
+    pub motor: Motor,
+    pub spring: SpringConstants,
 }
 
 impl JointSubspace {
@@ -267,6 +286,7 @@ impl JointSubspace {
     pub const FREE: Self = Self {
         dimension: JointDimensions::D2,
         limits: -f32::NEG_INFINITY..=f32::INFINITY,
+        motor: Motor::NONE,
         spring: SpringConstants::RIGID
     };
 }
@@ -332,11 +352,21 @@ impl JointDescriptor {
         }
     }
 
+    pub fn with_linear_motor(self, motor: Motor) -> Self {
+        Self {
+            linear_subspace: JointSubspace {
+                motor,
+                ..self.linear_subspace
+            },
+            ..self
+        }
+    }
+
     pub fn with_linear_spring(self, spring: SpringConstants) -> Self {
         Self {
             linear_subspace: JointSubspace {
                 spring,
-                ..self.linear_subspace.clone()
+                ..self.linear_subspace
             },
             ..self
         }
@@ -431,31 +461,12 @@ Improvements:
   If so, clamp the normal so that it's perpendicular to the edge.
   > This prevents artifacts and strange "bumps" when corners slide past one another
 
-Things to think about:
-- Dropping the box stack from high up causes interpenetration
-  > Is this a problem with speculative contacts? Or is it an issue with the solver?
-    Or the order of detection, solving, and velocity integration?
-  > My guess is speculative contacts in general don't handle this case. Is there any workaround?
-
-- There were NaNs in collision detection when voxels clipped through the opposite side of an edge. How did the 3D engine handle this?
-
-- Box2D tracks something called totalNormalImpulse to check whether any impulse was EVER generated for a speculative contact.
-  It prevents restitution from being applied to contacts without it. How important is this?
-
-
-
-- Big flaw in the joints math - constraints were adding energy. Constraints should only act along axes which are fixed
-  > How do we simulateneously solve for multiple constrained axes? How do we handle axes with limits?
-
 - Maintaining constraint velocity is important.
   > This means for things like mouse constraints, the position can't be "teleported" while the velocity stays 0
   > To get good-looking results, either need to tie all constraints to kinematic bodies, or have kinematic tracking of constraint positions
   > Does it make sense to allow for modifying a constraint after its creation? If yes, does it make sense to allow for a "kinematic constraint"
     where the target position moves dynamically?
   > What does Unity's API look like for this?
-- How should we handle joints if a body gets deleted?
-  > A: require the removal of all joints referencing that body first?
-  > B: Implicitly delete the joint? But then what happens when user code has existing references?
 - Capping constraint force/torque still yields strange results for dragging objects, if constraint error larger than some threshold should
   probably switch to pointwise constraint for mouse clicking
 
@@ -463,7 +474,7 @@ Things to think about:
   - Axis constraints (0, 1, 2, 3 translational DoF and 0, 1, 3 rotational DOF)
   - Axis limits
   - Force/torque limits (do we just clamp the force OR do we perform another solve at the boundary..?)
-  - Motors (can this be incorporated as a minimum torque limit? Should the motors have a target speed)
+  - Velocity motors (can this be incorporated as a minimum torque limit? Should the motors have a target speed)
   - Speculative contacts
   - Restitution (have stuff bounce)
   - Springs (can this be done by introducing a generalized "constraint hardness")?
@@ -477,5 +488,31 @@ Things to think about:
   > Ball (0/3 DoF), hinge (0/1 DoF), cone (0/2 DoF), prismatic (1/0 DoF)
   > Doors that are 2 vx wide don't work very well - need either a 1 vx thick door or 1 vx thick border
     (so we may need to improve 1 vx thick texturing)
+
+- Open questions:
+  > How should we handle joints if a body gets deleted?
+    * A: require the removal of all joints referencing that body first?
+    * B: Implicitly delete the joint? But then what happens when user code has existing references?
+    * Bsicto: Allow joint to stick around in "broken" state. This could also work for setting breaking force/torques
+  > Concept of joint anchors
+    * Ideally, a joint is just a [BodyId; 2] with an anchor specified for the _primary body_ and the second anchor implicitly calculated on creation.
+    * Problem: repeatedly saving/loading a joint will mess it up due to numeric precision.
+    * Bsicto: Offer convienent public API for creating constraints with a single anchor. Allow for explicitly adding joints that have two anchors.
+  > How to handle ill-defined constraints?
+    * What if two anchors are very far away? What if conflicting constraints are added and cannot be simulatenously satisfied?
+    * Bsicto: define engine-internal maximums for C, along with a utility for evaluating whether a joint is too far gone
+  > Where should the logic for evaluating whether a joint has voxels "touching" go?
+    * The physics system will use this frame-by-frame to disable joints that slide apart (only for joints where position is not fixed)
+    * The neighborhood disconnector will use this to transfer joints to new rigid bodies when stuff breaks
+  > How to handle mouse constraints?
+    * In Teardown, a mouse constraint becomes either "fixed" or "ball and socket" depending upon the object mass
+    * The max force exerted by the constraint is finite
+    * If we used a PD motor, we would have to change the position of the constraint center since a motor only goes along the constraint axis
+    * If we used a hidden kinematic body w/ force limits, we would need to support overall force caps on joints, which is a feature I don't have...
+      Is this something that would be easy to do? I.e. if solve doesn't work, scale down force/torque by uniform factor
+  > How to implement gear constraints?
+    * Bsicto: introduce a new "coupling" type. This is a third kind of object that can be added to the physics engine (aside from bodies/joints).
+      Coupling refer to two other joints, which must both be active, and introduce an additional constraint on their position
+  
 
 */

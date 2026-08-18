@@ -20,7 +20,7 @@ impl SequentialImpulse {
     /// Percentage by which to reduce velocity per second.
     const DAMPING: f32 = 0.95;
 
-    const ANGULAR_SLOP: f32 = 0.01;
+    const ANGULAR_SLOP: f32 = 0.001;
 
     /// A small amount of error to maintain when solving contact constraints.
     /// This ensures that the collision detector consistently picks up on contacts
@@ -225,8 +225,9 @@ impl SequentialImpulse {
 
         match joint.descriptor.linear_subspace.dimension {
             JointDimensions::D1 => {
-                let rotation = Vec2::from_angle(0.5 * (objects[0].transform.rotation + joint.local_transform[0].rotation
-                    + objects[1].transform.rotation + joint.local_transform[1].rotation));
+                let rotation = Vec2::from_angle(objects[0].transform.rotation + joint.local_transform[0].rotation)
+                    .lerp(Vec2::from_angle(objects[1].transform.rotation + joint.local_transform[1].rotation), 0.5)
+                    .try_normalize().unwrap_or(Vec2::X);
                 let t_par = rotation.rotate(Vec2::X);
                 let t_perp = rotation.rotate(Vec2::Y);
 
@@ -273,12 +274,20 @@ impl SequentialImpulse {
 
                     let parallel_errs = vec2(parallel_err - joint.descriptor.linear_subspace.limits.start, joint.descriptor.linear_subspace.limits.last - parallel_err);
                     let velocity_bounds = -parallel_errs / delta_time;
-                    let zetas = Vec2::select(parallel_errs.cmple(Vec2::ZERO), -baumgarte_factor * Self::double_slop_vec2(parallel_errs, Self::LINEAR_SLOP), velocity_bounds);
+                    let mut zetas = Vec2::select(parallel_errs.cmple(Vec2::ZERO), -baumgarte_factor * Self::double_slop_vec2(parallel_errs, Self::LINEAR_SLOP), velocity_bounds);
+
+                    if joint.descriptor.linear_subspace.motor.velocity < 0.0 {
+                        zetas[1] = zetas[1].min(joint.descriptor.linear_subspace.motor.velocity);
+                    }
+                    else {
+                        zetas[0] = zetas[0].max(joint.descriptor.linear_subspace.motor.velocity);
+                    }
 
                     let index = if parallel_errs.x <= parallel_errs.y { 0 } else { 1 };
                     let sign = [1.0, -1.0][index];
 
-                    if sign * relative_velocity < velocity_bounds[index] {
+                    if parallel_errs.cmple(Vec2::ZERO).any()
+                        || sign * relative_velocity < velocity_bounds[index] {
                         solver.add_constraint(BlockConstraint {
                             gamma_per_mass: 0.0,
                             j: [
@@ -289,6 +298,19 @@ impl SequentialImpulse {
                             zeta: zetas[index]
                         });
                     }
+                    else if 0.0 < joint.descriptor.linear_subspace.motor.max_force_or_torque {
+                        let sign = joint.descriptor.linear_subspace.motor.velocity.signum();
+
+                        solver.add_constraint(BlockConstraint {
+                            gamma_per_mass: 0.0,
+                            j: [
+                                sign * Screw { linear: -t_par, angular: -relative_offsets[0].perp_dot(t_par) + 0.5 * perp_err },
+                                sign * Screw { linear: t_par, angular: relative_offsets[1].perp_dot(t_par) + 0.5 * perp_err }
+                            ],
+                            lambda_limits: -(delta_time * joint.descriptor.linear_subspace.motor.max_force_or_torque)..=(delta_time * joint.descriptor.linear_subspace.motor.max_force_or_torque),
+                            zeta: joint.descriptor.linear_subspace.motor.velocity
+                        });
+                    }
                 }
                 else {
                     let parallel_errs = vec2(parallel_err - joint.descriptor.linear_subspace.limits.start, joint.descriptor.linear_subspace.limits.last - parallel_err);
@@ -296,10 +318,17 @@ impl SequentialImpulse {
                     let index = if parallel_errs.x <= parallel_errs.y { 0 } else { 1 };
                     let sign = [1.0, -1.0][index];
 
-                    let gamma_zetas = [
+                    let mut gamma_zetas = [
                         linear_spring.gamma_zeta(parallel_errs.x, delta_time),
                         linear_spring.gamma_zeta(parallel_errs.y, delta_time),
                     ];
+                    
+                    if joint.descriptor.linear_subspace.motor.velocity < 0.0 {
+                        gamma_zetas[1].1 = gamma_zetas[1].1.min(joint.descriptor.linear_subspace.motor.velocity);
+                    }
+                    else {
+                        gamma_zetas[0].1 = gamma_zetas[0].1.max(joint.descriptor.linear_subspace.motor.velocity);
+                    }
 
                     if parallel_errs.cmple(Vec2::ZERO).any() {
                         solver.add_constraint(BlockConstraint {
@@ -310,6 +339,19 @@ impl SequentialImpulse {
                             ],
                             lambda_limits: 0.0..=f32::INFINITY,
                             zeta: gamma_zetas[index].1
+                        });
+                    }
+                    else if 0.0 < joint.descriptor.linear_subspace.motor.max_force_or_torque {
+                        let sign = joint.descriptor.linear_subspace.motor.velocity.signum();
+
+                        solver.add_constraint(BlockConstraint {
+                            gamma_per_mass: 0.0,
+                            j: [
+                                sign * Screw { linear: -t_par, angular: -relative_offsets[0].perp_dot(t_par) + 0.5 * perp_err },
+                                sign * Screw { linear: t_par, angular: relative_offsets[1].perp_dot(t_par) + 0.5 * perp_err }
+                            ],
+                            lambda_limits: -(delta_time * joint.descriptor.linear_subspace.motor.max_force_or_torque)..=(delta_time * joint.descriptor.linear_subspace.motor.max_force_or_torque),
+                            zeta: joint.descriptor.linear_subspace.motor.velocity
                         });
                     }
                 }
@@ -353,8 +395,6 @@ impl SequentialImpulse {
                 lambda_limits: -f32::INFINITY..=f32::INFINITY,
                 zeta: -baumgarte_factor * Self::double_slop(relative_angle, Self::ANGULAR_SLOP)
             });
-
-            //println!("rel_ang {relative_angle:?} & z {:?} (gona appl {apply_baumgarte})", -baumgarte_factor * Self::double_slop(relative_angle, Self::ANGULAR_SLOP));
         }
 
         let impulses = solver.solve();
