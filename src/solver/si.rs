@@ -229,6 +229,7 @@ impl SequentialImpulse {
                 let t_perp = rotation.rotate(Vec2::Y);
 
                 let parallel_err = relative_displacement.dot(t_par);
+                let perp_err = relative_displacement.dot(t_perp);
 
                 solver.add_constraint(BlockConstraint {
                     j: [
@@ -236,73 +237,41 @@ impl SequentialImpulse {
                         Screw { linear: t_perp, angular: relative_offsets[1].perp_dot(t_perp) - 0.5 * parallel_err }
                     ],
                     lambda_limits: -f32::INFINITY..=f32::INFINITY,
-                    zeta: -baumgarte_factor * Self::double_slop(relative_displacement.dot(t_perp), Self::LINEAR_SLOP)
+                    zeta: -baumgarte_factor * Self::double_slop(perp_err, Self::LINEAR_SLOP)
                 });
 
-                /*
-                Ignore this code - not done yet
-                let parallel_err = relative_displacement.dot(t_par);
-                let relative_velocity = constraint.relative_velocity(world).dot(t_par);
-
-                //let middle = 0.5 * (*joint.descriptor.linear_subspace.limits.end() + *joint.descriptor.linear_subspace.limits.start());
-
-                let close_velocity = (*joint.descriptor.linear_subspace.limits.start() - parallel_err) / delta_time;
-
-                //if true {
-                if parallel_err <= *joint.descriptor.linear_subspace.limits.start() {
+                if joint.descriptor.linear_subspace.limits.start() == joint.descriptor.linear_subspace.limits.end() {
                     solver.add_constraint(BlockConstraint {
                         j: [
-                            Screw { linear: -t_par, angular: -relative_offsets[0].perp_dot(t_par) },
-                            Screw { linear: t_par, angular: (relative_offsets[1] - relative_displacement).perp_dot(t_par) }  <-- wrong
+                            Screw { linear: -t_par, angular: -relative_offsets[0].perp_dot(t_par) + 0.5 * perp_err },
+                            Screw { linear: t_par, angular: relative_offsets[1].perp_dot(t_par) + 0.5 * perp_err }
                         ],
-                        lambda_limits: 0.0..=f32::INFINITY,
-                        zeta: -baumgarte_factor * (parallel_err - *joint.descriptor.linear_subspace.limits.start() + Self::LINEAR_SLOP).min(0.0)
+                        lambda_limits: f32::NEG_INFINITY..=f32::INFINITY,
+                        zeta: -baumgarte_factor * Self::double_slop(parallel_err, Self::LINEAR_SLOP)
                     });
                 }
-                else if relative_velocity < close_velocity {
-                    println!("vaa");
-                    solver.add_constraint(BlockConstraint {
-                        j: [
-                            Screw { linear: -t_par, angular: -relative_offsets[0].perp_dot(t_par) },
-                            Screw { linear: t_par, angular: (relative_offsets[1] - relative_displacement).perp_dot(t_par) }  <-- wrong
-                        ],
-                        lambda_limits: 0.0..=f32::INFINITY,
-                        zeta: close_velocity
-                    });
-                }
+                else {
+                    let relative_velocity = constraint.relative_velocity(world).dot(t_par);
+                    let middle = 0.5 * (*joint.descriptor.linear_subspace.limits.end() + *joint.descriptor.linear_subspace.limits.start());
 
-                let m_err = (parallel_err - *joint.descriptor.linear_subspace.limits.start()).min(0.0).abs();//.max(parallel_err - *joint.descriptor.linear_subspace.limits.end());
-                if m_err >= 1.05 * Self::LINEAR_SLOP {
-                    println!("SHOT {m_err}");
-                }
+                    let parallel_errs = vec2(parallel_err - *joint.descriptor.linear_subspace.limits.start(), *joint.descriptor.linear_subspace.limits.end() - parallel_err);
+                    let velocity_bounds = -parallel_errs / delta_time;
+                    let zetas = Vec2::select(parallel_errs.cmple(Vec2::ZERO), -baumgarte_factor * parallel_errs, velocity_bounds);
 
-                if false {
-                //else if *joint.descriptor.linear_subspace.limits.end() <= parallel_err {
-                //else if middle <= parallel_err {
-                    let zeta = if *joint.descriptor.linear_subspace.limits.end() <= parallel_err {
-                        -baumgarte_factor * (parallel_err - *joint.descriptor.linear_subspace.limits.end() - Self::LINEAR_SLOP).max(0.0)
+                    let index = if parallel_err <= middle { 0 } else { 1 };
+                    let sign = [1.0, -1.0][index];
+
+                    if sign * relative_velocity < velocity_bounds[index] {
+                        solver.add_constraint(BlockConstraint {
+                            j: [
+                                sign * Screw { linear: -t_par, angular: -relative_offsets[0].perp_dot(t_par) + 0.5 * perp_err },
+                                sign * Screw { linear: t_par, angular: relative_offsets[1].perp_dot(t_par) + 0.5 * perp_err }
+                            ],
+                            lambda_limits: 0.0..=f32::INFINITY,
+                            zeta: zetas[index]
+                        });
                     }
-                    else {
-                        -(parallel_err - *joint.descriptor.linear_subspace.limits.end()) / delta_time
-                    };
-
-                    solver.add_constraint(BlockConstraint {
-                        j: [
-                            Screw { linear: -t_par, angular: -relative_offsets[0].perp_dot(t_par) },
-                            Screw { linear: t_par, angular: (relative_offsets[1] - relative_displacement).perp_dot(t_par) }
-                        ],
-                        lambda_limits: -f32::INFINITY..=0.0,
-                        zeta
-                    });
                 }
-                solver.add_constraint(BlockConstraint {
-                    j: [
-                        Screw { linear: -t_par, angular: -relative_offsets[0].perp_dot(t_par) },
-                        Screw { linear: t_par, angular: (relative_offsets[1] - relative_displacement).perp_dot(t_par) }
-                    ],
-                    lambda_limits: 0.0..=f32::INFINITY,
-                    zeta: 0.0,//-baumgarte_factor * relative_displacement.dot(t_perp)
-                }); */
             }
             JointDimensions::D2 => {
                 if *joint.descriptor.linear_subspace.limits.end() <= 0.0 {
@@ -656,20 +625,20 @@ enum RowState {
 }
 
 struct BlockSolver {
-    lambda_max: Vector6<f32>,
-    lambda_min: Vector6<f32>,
+    lambda_max: Vector3<f32>,
+    lambda_min: Vector3<f32>,
     len: usize,
     j_t: Matrix6<f32>,
     m: [MassProperties; 2],
     v: Vector6<f32>,
-    zeta: Vector6<f32>
+    zeta: Vector3<f32>
 }
 
 impl BlockSolver {
     pub fn new(v: [Screw; 2], m: [MassProperties; 2]) -> Self {
         Self {
-            lambda_max: Vector6::zeros(),
-            lambda_min: Vector6::zeros(),
+            lambda_max: Vector3::zeros(),
+            lambda_min: Vector3::zeros(),
             len: 0,
             j_t: Matrix6::zeros(),
             m,
@@ -681,12 +650,12 @@ impl BlockSolver {
                 v[1].linear.y,
                 v[1].angular,
             ),
-            zeta: Vector6::zeros()
+            zeta: Vector3::zeros()
         }
     }
 
     pub fn add_constraint(&mut self, constraint: BlockConstraint) {
-        assert!(self.len < 6);
+        assert!(self.len < 3);
 
         self.lambda_max[self.len] = *constraint.lambda_limits.end();
         self.lambda_min[self.len] = *constraint.lambda_limits.start();
@@ -718,8 +687,6 @@ impl BlockSolver {
             1 => self.solve_cols::<1>(m_inv),
             2 => self.solve_cols::<2>(m_inv),
             3 => self.solve_cols::<3>(m_inv),
-            4 => self.solve_cols::<4>(m_inv),
-            5 => self.solve_cols::<5>(m_inv),
             _ => unreachable!()
         }
     }
@@ -872,8 +839,6 @@ impl BlockSolver {
             1 => a.fixed_resize::<1, 1>(0.0).lu().solve(&b.fixed_resize::<1, 1>(0.0))?.fixed_resize::<C, 1>(0.0),
             2 => a.fixed_resize::<2, 2>(0.0).lu().solve(&b.fixed_resize::<2, 1>(0.0))?.fixed_resize::<C, 1>(0.0),
             3 => a.fixed_resize::<3, 3>(0.0).lu().solve(&b.fixed_resize::<3, 1>(0.0))?.fixed_resize::<C, 1>(0.0),
-            4 => a.fixed_resize::<4, 4>(0.0).lu().solve(&b.fixed_resize::<4, 1>(0.0))?.fixed_resize::<C, 1>(0.0),
-            5 => a.fixed_resize::<5, 5>(0.0).lu().solve(&b.fixed_resize::<5, 1>(0.0))?.fixed_resize::<C, 1>(0.0),
             _ => unreachable!()
         })
     }
