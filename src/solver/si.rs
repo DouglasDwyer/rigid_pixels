@@ -229,11 +229,11 @@ impl SequentialImpulse {
 
                 solver.add_constraint(BlockConstraint {
                     j: [
-                        Screw { linear: -t_perp, angular: -relative_offsets[0].perp_dot(t_perp) },
-                        Screw { linear: t_perp, angular: (relative_offsets[1] - relative_displacement).perp_dot(t_perp) }
+                        Screw { linear: -t_perp, angular: -(relative_offsets[0] + relative_displacement).perp_dot(t_perp) },
+                        Screw { linear: t_perp, angular: relative_offsets[1].perp_dot(t_perp) }
                     ],
                     lambda_limits: -f32::INFINITY..=f32::INFINITY,
-                    zeta: -baumgarte_factor * Self::double_slop(relative_displacement.dot(t_perp).clamp(-1.0, 1.0), Self::LINEAR_SLOP)
+                    zeta: -baumgarte_factor * relative_displacement.dot(t_perp) //Self::double_slop(relative_displacement.dot(t_perp), Self::LINEAR_SLOP)
                 });
 
                 /*
@@ -250,7 +250,7 @@ impl SequentialImpulse {
                     solver.add_constraint(BlockConstraint {
                         j: [
                             Screw { linear: -t_par, angular: -relative_offsets[0].perp_dot(t_par) },
-                            Screw { linear: t_par, angular: (relative_offsets[1] - relative_displacement).perp_dot(t_par) }
+                            Screw { linear: t_par, angular: (relative_offsets[1] - relative_displacement).perp_dot(t_par) }  <-- wrong
                         ],
                         lambda_limits: 0.0..=f32::INFINITY,
                         zeta: -baumgarte_factor * (parallel_err - *joint.descriptor.linear_subspace.limits.start() + Self::LINEAR_SLOP).min(0.0)
@@ -261,7 +261,7 @@ impl SequentialImpulse {
                     solver.add_constraint(BlockConstraint {
                         j: [
                             Screw { linear: -t_par, angular: -relative_offsets[0].perp_dot(t_par) },
-                            Screw { linear: t_par, angular: (relative_offsets[1] - relative_displacement).perp_dot(t_par) }
+                            Screw { linear: t_par, angular: (relative_offsets[1] - relative_displacement).perp_dot(t_par) }  <-- wrong
                         ],
                         lambda_limits: 0.0..=f32::INFINITY,
                         zeta: close_velocity
@@ -335,7 +335,7 @@ impl SequentialImpulse {
                     Screw { linear: Vec2::ZERO, angular: 1.0 }
                 ],
                 lambda_limits: -f32::INFINITY..=f32::INFINITY,
-                zeta: -baumgarte_factor * Self::double_slop(relative_angle, Self::ANGULAR_SLOP)
+                zeta: -baumgarte_factor * relative_angle
             });
 
             //println!("rel_ang {relative_angle:?} & z {:?} (gona appl {apply_baumgarte})", -baumgarte_factor * Self::double_slop(relative_angle, Self::ANGULAR_SLOP));
